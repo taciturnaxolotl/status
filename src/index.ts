@@ -2,6 +2,7 @@ import type { Env } from "./types";
 import { getManifest } from "./manifest";
 import { checkHealth } from "./health";
 import { insertPing, pruneOldPings } from "./db";
+import { refreshDevices } from "./tailscale";
 import { handleStatus } from "./routes/status";
 import { handleUptime } from "./routes/uptime";
 import { handleBadge, handleOverallBadge } from "./routes/badge";
@@ -38,13 +39,19 @@ export default {
 	},
 
 	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-		const manifest = await getManifest(env);
+		const [manifest] = await Promise.all([
+			getManifest(env),
+			refreshDevices(env),
+		]);
 
-		const checks = manifest.map(async (svc) => {
-			if (!svc.health_url) return;
-			const result = await checkHealth(svc);
-			await insertPing(env.DB, svc.name, result.status, result.latency_ms);
-		});
+		const checks = Object.values(manifest).flatMap((machine) =>
+			machine.services
+				.filter((svc) => svc.health_url)
+				.map(async (svc) => {
+					const result = await checkHealth(svc);
+					await insertPing(env.DB, svc.name, result.status, result.latency_ms);
+				}),
+		);
 
 		await Promise.all(checks);
 		await pruneOldPings(env.DB, 90);

@@ -1,30 +1,44 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
 import { getLatestPing, getUptime7d } from "../db";
+import { getDeviceStatus } from "../tailscale";
 import { COMMIT_SHA } from "../version";
 
 export async function handleIndex(env: Env): Promise<Response> {
 	const manifest = await getManifest(env);
 
-	const services = await Promise.all(
-		manifest.map(async (svc) => {
-			const ping = await getLatestPing(env.DB, svc.name);
-			const uptime = await getUptime7d(env.DB, svc.name);
-			return {
-				name: svc.name,
-				description: svc.description,
-				url: `https://${svc.domain}`,
-				status: ping?.status ?? "unknown",
-				latency_ms: ping?.latency_ms ?? null,
-				uptime_7d: uptime,
-				has_health: svc.health_url !== null,
-			};
+	const machines = await Promise.all(
+		Object.entries(manifest).map(async ([name, machine]) => {
+			const online = await getDeviceStatus(env, machine.tailscale_host);
+			const services = await Promise.all(
+				machine.services.map(async (svc) => {
+					const ping = await getLatestPing(env.DB, svc.name);
+					const uptime = await getUptime7d(env.DB, svc.name);
+					return {
+						name: svc.name,
+						description: svc.description,
+						url: `https://${svc.domain}`,
+						status: ping?.status ?? "unknown",
+						latency_ms: ping?.latency_ms ?? null,
+						uptime_7d: uptime,
+						has_health: svc.health_url !== null,
+					};
+				}),
+			);
+			return { name, type: machine.type, online, services };
 		}),
 	);
 
-	const allUp = services.every(
-		(s) => s.status === "up" || s.status === "unknown",
-	);
+	const servers = machines.filter((m) => m.type === "server");
+	const clients = machines.filter((m) => m.type === "client");
+
+	const allUp = machines
+		.filter((m) => m.type === "server")
+		.every(
+			(m) =>
+				m.online &&
+				m.services.every((s) => s.status === "up" || s.status === "unknown"),
+		);
 
 	const html = `<!DOCTYPE html>
 <html lang="en">
@@ -43,6 +57,11 @@ export async function handleIndex(env: Env): Promise<Response> {
   .dot.degraded { background: #f39c12; }
   .dot.down { background: #e74c3c; }
   .dot.unknown { background: #8b949e; }
+  .dot.online { background: #2ecc71; }
+  .dot.offline { background: #e74c3c; }
+  .machine { margin-bottom: 1.5rem; }
+  .machine-header { display: flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #8b949e; margin-bottom: 0.5rem; }
+  .machine-type { font-size: 0.6rem; background: #21262d; padding: 0.1rem 0.4rem; border-radius: 3px; margin-left: 0.4rem; }
   .service { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #21262d; }
   .service:last-child { border-bottom: none; }
   .svc-left { display: flex; align-items: center; gap: 0.25rem; }
@@ -52,6 +71,11 @@ export async function handleIndex(env: Env): Promise<Response> {
   .svc-right { font-size: 0.75rem; color: #8b949e; display: flex; gap: 0; flex-shrink: 0; }
   .uptime { width: 3.5rem; text-align: right; }
   .latency { width: 3rem; text-align: right; }
+  .no-services { font-size: 0.8rem; color: #8b949e; padding: 0.25rem 0; }
+  .clients { margin-bottom: 1.5rem; }
+  .clients-header { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #8b949e; margin-bottom: 0.5rem; }
+  .clients-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .client { display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; color: #8b949e; }
   footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid #21262d; font-size: 0.7rem; color: #8b949e; display: flex; justify-content: space-between; }
   footer a { color: #8b949e; text-decoration: none; }
   footer a:hover { text-decoration: underline; }
@@ -60,7 +84,11 @@ export async function handleIndex(env: Env): Promise<Response> {
 <body>
 <h1>infra.dunkirk.sh</h1>
 <p class="overall"><span class="dot ${allUp ? "up" : "degraded"}"></span>${allUp ? "All systems operational" : "Some systems degraded"}</p>
-${services
+${servers
+	.map(
+		(m) => `<div class="machine">
+<div class="machine-header"><span class="dot ${m.online ? "online" : "offline"}"></span>${esc(m.name)}<span class="machine-type">${esc(m.type)}</span></div>
+${m.services.length === 0 ? `<div class="no-services">no services</div>` : m.services
 	.map(
 		(s) => `<div class="service">
   <div class="svc-left">
@@ -73,6 +101,15 @@ ${services
 </div>`,
 	)
 	.join("\n")}
+</div>`,
+	)
+	.join("\n")}
+${clients.length > 0 ? `<div class="clients">
+<div class="clients-header">devices</div>
+<div class="clients-list">
+${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "offline"}"></span>${esc(m.name)}</span>`).join("\n")}
+</div>
+</div>` : ""}
 <footer><span>checked every 5 min</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></footer>
 </body>
 </html>`;

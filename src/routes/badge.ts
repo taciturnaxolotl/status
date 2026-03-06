@@ -160,7 +160,8 @@ export async function handleBadge(
 
 export async function handleOverallBadge(env: Env, url: URL): Promise<Response> {
 	const manifest = await getManifest(env);
-	const monitored = manifest.filter((s) => s.health_url !== null);
+	const allServices = Object.values(manifest).flatMap((m) => m.services);
+	const monitored = allServices.filter((s) => s.health_url !== null);
 
 	let worst: string = "up";
 	let totalUptime = 0;

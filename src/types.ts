@@ -13,16 +13,29 @@ export interface Service {
 	};
 }
 
-export type ServicesManifest = Service[];
+export interface Machine {
+	hostname: string;
+	tailscale_host: string;
+	type: "server" | "client";
+	services: Service[];
+}
+
+export type ServicesManifest = Record<string, Machine>;
 
 export interface StatusResponse {
 	ok: boolean;
-	services: {
-		id: string;
+	machines: {
 		name: string;
-		status: "up" | "degraded" | "down" | "unknown";
-		latency_ms: number | null;
-		uptime_7d: number;
+		hostname: string;
+		type: string;
+		online: boolean;
+		services: {
+			id: string;
+			name: string;
+			status: "up" | "degraded" | "down" | "unknown";
+			latency_ms: number | null;
+			uptime_7d: number;
+		}[];
 	}[];
 }
 
@@ -38,4 +51,5 @@ export interface UptimeResponse {
 export interface Env {
 	DB: D1Database;
 	KV: KVNamespace;
+	TAILSCALE_API_KEY?: string;
 }
