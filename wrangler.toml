@@ -1,0 +1,16 @@
+name = "infra-status"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "status-db"
+database_id = "5987304c-9684-462e-a7dc-d6c67e7f6923"
+migrations_dir = "./migrations"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "c4daf2e998ea45e1aad9efb6636b66df"
