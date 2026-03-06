@@ -17,7 +17,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 // Verdana character width table at 11px (from shields.io)
-const WIDTHS: Record<string, number> = {
+const WIDTHS_11: Record<string, number> = {
 	" ": 3.3, "!": 4.2, '"': 5.2, "#": 7.8, $: 6.3, "%": 9.5, "&": 7.6,
 	"'": 2.8, "(": 4.2, ")": 4.2, "*": 6.3, "+": 7.8, ",": 3.5, "-": 4.4,
 	".": 3.5, "/": 4.8, "0": 6.3, "1": 6.3, "2": 6.3, "3": 6.3, "4": 6.3,
@@ -32,47 +32,108 @@ const WIDTHS: Record<string, number> = {
 	y: 5.8, z: 5.0, "|": 4.2,
 };
 
-function textWidth(s: string): number {
+function textWidth(s: string, scale: number = 1): number {
 	let w = 0;
-	for (const c of s) w += WIDTHS[c] ?? 6.5;
+	for (const c of s) w += (WIDTHS_11[c] ?? 6.5) * scale;
 	return w;
 }
 
-function makeBadge(label: string, status: string, uptime: number): string {
-	const color = COLORS[status] ?? COLORS.unknown;
-	const statusLabel = STATUS_LABELS[status] ?? "unknown";
-	const value = `${statusLabel} ${uptime}%`;
+type BadgeStyle = "flat" | "for-the-badge";
+
+interface BadgeOptions {
+	label: string;
+	status: string;
+	uptime: number;
+	style?: BadgeStyle;
+	colorA?: string;
+	colorB?: string;
+}
+
+function makeBadge(opts: BadgeOptions): string {
+	const style = opts.style ?? "flat";
+	return style === "for-the-badge" ? makeForTheBadge(opts) : makeFlat(opts);
+}
+
+function makeFlat(opts: BadgeOptions): string {
+	const color = opts.colorB ?? COLORS[opts.status] ?? COLORS.unknown;
+	const labelColor = opts.colorA ?? "#555";
+	const statusLabel = STATUS_LABELS[opts.status] ?? "unknown";
+	const value = `${statusLabel} ${opts.uptime}%`;
 
 	const pad = 20;
-	const labelW = Math.round(textWidth(label) + pad);
+	const labelW = Math.round(textWidth(opts.label) + pad);
 	const valueW = Math.round(textWidth(value) + pad);
 	const total = labelW + valueW;
 	const labelX = labelW / 2;
 	const valueX = labelW + valueW / 2;
 
-	return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total}" height="20" role="img">
-  <title>${label}: ${value}</title>
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="20" role="img">
+  <title>${esc(opts.label)}: ${esc(value)}</title>
   <linearGradient id="s" x2="0" y2="100%">
     <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
     <stop offset="1" stop-opacity=".1"/>
   </linearGradient>
   <clipPath id="r"><rect width="${total}" height="20" rx="3" fill="#fff"/></clipPath>
   <g clip-path="url(#r)">
-    <rect width="${labelW}" height="20" fill="#555"/>
+    <rect width="${labelW}" height="20" fill="${labelColor}"/>
     <rect x="${labelW}" width="${valueW}" height="20" fill="${color}"/>
     <rect width="${total}" height="20" fill="url(#s)"/>
   </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
-    <text aria-hidden="true" x="${labelX}" y="15" fill="#010101" fill-opacity=".3">${esc(label)}</text>
-    <text x="${labelX}" y="14">${esc(label)}</text>
-    <text aria-hidden="true" x="${valueX}" y="15" fill="#010101" fill-opacity=".3">${esc(value)}</text>
-    <text x="${valueX}" y="14">${esc(value)}</text>
+  <g text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+    <text x="${labelX}" y="14" fill="${textColorForBg(labelColor)}">${esc(opts.label)}</text>
+    <text x="${valueX}" y="14" fill="${textColorForBg(color)}">${esc(value)}</text>
   </g>
 </svg>`;
 }
 
+function makeForTheBadge(opts: BadgeOptions): string {
+	const color = opts.colorB ?? COLORS[opts.status] ?? COLORS.unknown;
+	const labelColor = opts.colorA ?? "#555";
+	const statusLabel = STATUS_LABELS[opts.status] ?? "unknown";
+	const value = `${statusLabel} ${opts.uptime}%`.toUpperCase();
+	const label = opts.label.toUpperCase();
+
+	// shields.io uses 10x scale trick: font-size 100 + scale(.1)
+	// textLength controls letter spacing, ~75 per char for label, ~75 per char for value
+	const charW = 75;
+	const pad = 240; // padding in 10x space (24px real)
+	const labelTL = label.length * charW;
+	const valueTL = value.length * charW;
+	const labelW = (labelTL + pad) / 10;
+	const valueW = (valueTL + pad) / 10;
+	const total = labelW + valueW;
+	const labelX = labelW * 5; // center in 10x space
+	const valueX = (labelW + valueW / 2) * 10;
+	const h = 28;
+
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${h}" role="img" aria-label="${esc(opts.label)}: ${esc(value)}"><title>${esc(opts.label)}: ${esc(value)}</title><g shape-rendering="crispEdges"><rect width="${labelW}" height="${h}" fill="${labelColor}"/><rect x="${labelW}" width="${valueW}" height="${h}" fill="${color}"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100"><text transform="scale(.1)" x="${labelX}" y="175" textLength="${labelTL}" fill="${textColorForBg(labelColor)}">${esc(label)}</text><text transform="scale(.1)" x="${valueX}" y="175" textLength="${valueTL}" fill="${textColorForBg(color)}" font-weight="bold">${esc(value)}</text></g></svg>`;
+}
+
+function textColorForBg(hex: string): string {
+	const c = hex.replace("#", "");
+	const r = parseInt(c.slice(0, 2), 16);
+	const g = parseInt(c.slice(2, 4), 16);
+	const b = parseInt(c.slice(4, 6), 16);
+	// W3C relative luminance
+	const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+	return lum > 0.5 ? "#333" : "#fff";
+}
+
 function esc(s: string): string {
 	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function parseColor(s: string | null): string | undefined {
+	if (!s) return undefined;
+	return s.startsWith("#") ? s : `#${s}`;
+}
+
+function parseOpts(url: URL): Partial<BadgeOptions> {
+	return {
+		style: (url.searchParams.get("style") as BadgeStyle) ?? undefined,
+		colorA: parseColor(url.searchParams.get("colorA")),
+		colorB: parseColor(url.searchParams.get("colorB")),
+	};
 }
 
 const BADGE_HEADERS = {
@@ -84,17 +145,20 @@ const BADGE_HEADERS = {
 export async function handleBadge(
 	env: Env,
 	serviceId: string,
+	url: URL,
 ): Promise<Response> {
 	const ping = await getLatestPing(env.DB, serviceId);
 	const uptime = await getUptime7d(env.DB, serviceId);
 	const status = (ping?.status as string) ?? "unknown";
+	const opts = parseOpts(url);
 
-	return new Response(makeBadge(serviceId, status, uptime), {
-		headers: BADGE_HEADERS,
-	});
+	return new Response(
+		makeBadge({ label: serviceId, status, uptime, ...opts }),
+		{ headers: BADGE_HEADERS },
+	);
 }
 
-export async function handleOverallBadge(env: Env): Promise<Response> {
+export async function handleOverallBadge(env: Env, url: URL): Promise<Response> {
 	const manifest = await getManifest(env);
 	const monitored = manifest.filter((s) => s.health_url !== null);
 
@@ -115,8 +179,10 @@ export async function handleOverallBadge(env: Env): Promise<Response> {
 		monitored.length > 0
 			? Math.round((totalUptime / monitored.length) * 100) / 100
 			: 100;
+	const opts = parseOpts(url);
 
-	return new Response(makeBadge("infra", worst, avgUptime), {
-		headers: BADGE_HEADERS,
-	});
+	return new Response(
+		makeBadge({ label: "infra", status: worst, uptime: avgUptime, ...opts }),
+		{ headers: BADGE_HEADERS },
+	);
 }
