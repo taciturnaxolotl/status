@@ -27,12 +27,12 @@ export default {
 		}
 
 		if (path === "/badge") {
-			return handleOverallBadge(env, url);
+			return handleOverallBadge(env);
 		}
 
 		const badgeMatch = path.match(/^\/badge\/(.+)$/);
 		if (badgeMatch) {
-			return handleBadge(env, badgeMatch[1], url);
+			return handleBadge(env, badgeMatch[1]);
 		}
 
 		return new Response("Not Found", { status: 404 });
