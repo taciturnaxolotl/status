@@ -1,4 +1,4 @@
-name = "infra-status"
+name = "status"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
