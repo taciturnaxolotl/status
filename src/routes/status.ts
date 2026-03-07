@@ -6,13 +6,16 @@ import { getDeviceStatus } from "../tailscale";
 const JSON_HEADERS = { "Access-Control-Allow-Origin": "*" };
 
 function worstStatus(statuses: string[]): string {
-	if (statuses.includes("down")) return "down";
+	if (statuses.length === 0) return "unknown";
+	if (statuses.every((s) => s === "down")) return "down";
+	if (statuses.includes("down")) return "partial";
+	if (statuses.includes("misconfigured")) return "misconfigured";
 	if (statuses.includes("degraded")) return "degraded";
 	if (statuses.includes("unknown")) return "unknown";
 	return "up";
 }
 
-// GET /api/status or /api/status/overall
+// GET /api/status/overall
 async function overallStatus(env: Env): Promise<Response> {
 	const manifest = await getManifest(env);
 	const allServices = Object.values(manifest).flatMap((m) => m.services);
@@ -42,6 +45,52 @@ async function overallStatus(env: Env): Promise<Response> {
 			services_total: allServices.length,
 			services_monitored: monitored.length,
 			machines_total: Object.keys(manifest).length,
+		},
+		{ headers: JSON_HEADERS },
+	);
+}
+
+// GET /api/status
+async function fullStatus(env: Env): Promise<Response> {
+	const manifest = await getManifest(env);
+
+	const machines = await Promise.all(
+		Object.entries(manifest).map(async ([name, machine]) => {
+			const online = await getDeviceStatus(env, machine.tailscale_host);
+			const services = await Promise.all(
+				machine.services.map(async (svc) => {
+					const ping = await getLatestPing(env.DB, svc.name);
+					const uptime = await getUptime7d(env.DB, svc.name);
+					return {
+						id: svc.name,
+						status: (ping?.status ?? "unknown") as string,
+						latency_ms: ping?.latency_ms ?? null,
+						uptime_7d: uptime,
+					};
+				}),
+			);
+			const svcStatuses = services.map((s) => s.status);
+			return {
+				name,
+				hostname: machine.hostname,
+				type: machine.type,
+				online,
+				status: online ? worstStatus(svcStatuses) : "down",
+				services,
+			};
+		}),
+	);
+
+	const allStatuses = machines
+		.filter((m) => m.type === "server")
+		.flatMap((m) => [m.online ? "up" : "down", ...m.services.map((s) => s.status)]);
+	const status = worstStatus(allStatuses);
+
+	return Response.json(
+		{
+			ok: status === "up",
+			status,
+			machines,
 		},
 		{ headers: JSON_HEADERS },
 	);
@@ -110,7 +159,11 @@ export async function handleStatusRoute(
 	env: Env,
 	path: string,
 ): Promise<Response | null> {
-	if (path === "/api/status" || path === "/api/status/overall") {
+	if (path === "/api/status") {
+		return fullStatus(env);
+	}
+
+	if (path === "/api/status/overall") {
 		return overallStatus(env);
 	}
 

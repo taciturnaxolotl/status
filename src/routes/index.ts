@@ -37,13 +37,23 @@ export async function handleIndex(env: Env): Promise<Response> {
 	const servers = machines.filter((m) => m.type === "server");
 	const clients = machines.filter((m) => m.type === "client");
 
-	const allUp = machines
-		.filter((m) => m.type === "server")
-		.every(
-			(m) =>
-				m.online &&
-				m.services.every((s) => s.status === "up" || s.status === "unknown"),
-		);
+	const activeServers = servers.filter((m) => m.services.length > 0);
+	const anyServerOffline = activeServers.some((m) => !m.online);
+	const svcStatuses = activeServers.flatMap((m) => m.services.map((s) => s.status));
+	const downCount = svcStatuses.filter((s) => s === "down").length;
+	const downRatio = svcStatuses.length > 0 ? downCount / svcStatuses.length : 0;
+	const onFire = anyServerOffline || downRatio >= 0.4;
+	const hasDegraded =
+		svcStatuses.includes("down") ||
+		svcStatuses.includes("degraded") ||
+		svcStatuses.includes("misconfigured") ||
+		svcStatuses.includes("partial");
+	const overallClass = onFire ? "down" : hasDegraded ? "degraded" : "up";
+	const overallText = onFire
+		? "On fire"
+		: hasDegraded
+			? "Some systems degraded"
+			: "All systems operational";
 
 	const html = `<!DOCTYPE html>
 <html lang="en">
@@ -61,6 +71,7 @@ export async function handleIndex(env: Env): Promise<Response> {
   .dot.up { background: #2ecc71; }
   .dot.degraded { background: #f39c12; }
   .dot.down { background: #e74c3c; }
+  .dot.misconfigured { background: #9b59b6; }
   .dot.unknown { background: #8b949e; }
   .dot.online { background: #2ecc71; }
   .dot.offline { background: #e74c3c; }
@@ -88,11 +99,11 @@ export async function handleIndex(env: Env): Promise<Response> {
 </head>
 <body>
 <h1>infra.dunkirk.sh</h1>
-<p class="overall"><span class="dot ${allUp ? "up" : "degraded"}"></span>${allUp ? "All systems operational" : "Some systems degraded"}</p>
+<p class="overall"><span class="dot ${overallClass}"></span>${overallText}</p>
 ${servers
 	.map(
 		(m) => `<div class="machine">
-<div class="machine-header"><span class="dot ${m.online ? "online" : "offline"}"></span>${esc(m.name)}<span class="machine-type">${esc(m.type)}</span></div>
+<div class="machine-header"><span class="dot ${m.online ? "online" : m.services.length === 0 ? "unknown" : "offline"}"></span>${esc(m.name)}<span class="machine-type">${esc(m.type)}</span></div>
 ${m.services.length === 0 ? `<div class="no-services">no services</div>` : m.services
 	.map(
 		(s) => `<div class="service">
@@ -112,7 +123,7 @@ ${m.services.length === 0 ? `<div class="no-services">no services</div>` : m.ser
 ${clients.length > 0 ? `<div class="clients">
 <div class="clients-header">devices</div>
 <div class="clients-list">
-${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "offline"}"></span>${esc(m.name)}</span>`).join("\n")}
+${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "unknown"}"></span>${esc(m.name)}</span>`).join("\n")}
 </div>
 </div>` : ""}
 <footer><span>${lastCheckISO ? `updated <relative-time datetime="${lastCheckISO}" prefix="">loading</relative-time>` : "no checks yet"}</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></footer>
