@@ -102,16 +102,16 @@ export async function handleIndex(env: Env): Promise<Response> {
 </head>
 <body>
 <h1>infra.dunkirk.sh</h1>
-<p class="overall"><span class="dot ${overallClass}"></span>${overallText}</p>
+<p class="overall"><span class="dot ${overallClass}" title="${overallClass}"></span>${overallText}</p>
 ${servers
 	.map(
 		(m) => `<div class="machine">
-<div class="machine-header"><span class="dot ${m.online ? "online" : m.services.length === 0 ? "unknown" : "offline"}"></span>${esc(m.name)}<span class="machine-type">${esc(m.type)}</span></div>
+<div class="machine-header"><span class="dot ${m.online ? "online" : m.services.length === 0 ? "unknown" : "offline"}" title="${m.online ? "online" : "offline"}"></span>${esc(m.name)}<span class="machine-type">${esc(m.type)}</span></div>
 ${m.services.length === 0 ? `<div class="no-services">no services</div>` : m.services
 	.map(
 		(s) => `<div class="service">
   <div class="svc-left">
-    <span class="dot ${s.status}"></span>
+    <span class="dot ${s.status}" title="${s.status}"></span>
     <span class="svc-name"><a href="${esc(s.url)}">${esc(s.name)}</a></span>
   </div>
   <div class="svc-right">
@@ -126,7 +126,7 @@ ${m.services.length === 0 ? `<div class="no-services">no services</div>` : m.ser
 ${clients.length > 0 ? `<div class="clients">
 <div class="clients-header">devices</div>
 <div class="clients-list">
-${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "unknown"}"></span>${esc(m.name)}</span>`).join("\n")}
+${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "unknown"}" title="${m.online ? "online" : "offline"}"></span>${esc(m.name)}</span>`).join("\n")}
 </div>
 </div>` : ""}
 <footer><span>${lastCheckISO ? `updated <relative-time datetime="${lastCheckISO}" prefix="">loading</relative-time>` : "no checks yet"}</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></footer>
