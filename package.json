@@ -3,6 +3,7 @@
 	"private": true,
 	"scripts": {
 		"prebuild": "echo \"export const COMMIT_SHA = \\\"$(git rev-parse --short HEAD)\\\";\" > src/version.ts",
+		"build": "bun run prebuild && npx wrangler versions upload",
 		"dev": "bun run prebuild && wrangler dev",
 		"deploy": "bun run prebuild && wrangler deploy",
 		"db:migrate": "wrangler d1 migrations apply status-db",
