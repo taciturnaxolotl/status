@@ -13,6 +13,5 @@ export async function handleUptime(
 
 	return Response.json(
 		{ service_id: serviceId, window_hours, buckets } satisfies UptimeResponse,
-		{ headers: { "Access-Control-Allow-Origin": "*" } },
 	);
 }

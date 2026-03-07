@@ -3,8 +3,6 @@ import { getManifest } from "../manifest";
 import { getLatestPing, getUptime7d } from "../db";
 import { getDeviceStatus } from "../tailscale";
 
-const JSON_HEADERS = { "Access-Control-Allow-Origin": "*" };
-
 function worstStatus(statuses: string[]): string {
 	if (statuses.length === 0) return "unknown";
 	if (statuses.every((s) => s === "down" || s === "timeout")) return "down";
@@ -45,9 +43,7 @@ async function overallStatus(env: Env): Promise<Response> {
 			services_total: allServices.length,
 			services_monitored: monitored.length,
 			machines_total: Object.keys(manifest).length,
-		},
-		{ headers: JSON_HEADERS },
-	);
+		}	);
 }
 
 // GET /api/status
@@ -93,9 +89,7 @@ async function fullStatus(env: Env): Promise<Response> {
 			ok: status === "up",
 			status,
 			machines,
-		},
-		{ headers: JSON_HEADERS },
-	);
+		}	);
 }
 
 // GET /api/status/service/:id
@@ -104,7 +98,7 @@ async function serviceStatus(env: Env, id: string): Promise<Response> {
 	const uptime = await getUptime7d(env.DB, id);
 
 	if (!ping) {
-		return Response.json({ error: "service not found" }, { status: 404, headers: JSON_HEADERS });
+		return Response.json({ error: "service not found" }, { status: 404 });
 	}
 
 	return Response.json(
@@ -113,9 +107,7 @@ async function serviceStatus(env: Env, id: string): Promise<Response> {
 			status: ping.status,
 			latency_ms: ping.latency_ms,
 			uptime_7d: uptime,
-		},
-		{ headers: JSON_HEADERS },
-	);
+		}	);
 }
 
 // GET /api/status/machine/:name
@@ -124,7 +116,7 @@ async function machineStatus(env: Env, name: string): Promise<Response> {
 	const machine = manifest[name];
 
 	if (!machine) {
-		return Response.json({ error: "machine not found" }, { status: 404, headers: JSON_HEADERS });
+		return Response.json({ error: "machine not found" }, { status: 404 });
 	}
 
 	const online = await getDeviceStatus(env, machine.tailscale_host);
@@ -152,9 +144,7 @@ async function machineStatus(env: Env, name: string): Promise<Response> {
 			online,
 			status,
 			services,
-		},
-		{ headers: JSON_HEADERS },
-	);
+		}	);
 }
 
 export async function handleStatusRoute(
