@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { getManifest } from "../manifest";
 import { getLatestPing, getUptime7d, getLastCheckTime } from "../db";
 import { getDeviceStatus } from "../tailscale";
+import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";
 
 export async function handleIndex(env: Env): Promise<Response> {
@@ -37,24 +38,7 @@ export async function handleIndex(env: Env): Promise<Response> {
 	const servers = machines.filter((m) => m.type === "server");
 	const clients = machines.filter((m) => m.type === "client");
 
-	const activeServers = servers.filter((m) => m.services.length > 0);
-	const anyServerOffline = activeServers.some((m) => !m.online);
-	const svcStatuses = activeServers.flatMap((m) => m.services.map((s) => s.status));
-	const downCount = svcStatuses.filter((s) => s === "down" || s === "timeout").length;
-	const downRatio = svcStatuses.length > 0 ? downCount / svcStatuses.length : 0;
-	const onFire = anyServerOffline || downRatio >= 0.4;
-	const hasDegraded =
-		svcStatuses.includes("down") ||
-		svcStatuses.includes("timeout") ||
-		svcStatuses.includes("degraded") ||
-		svcStatuses.includes("misconfigured") ||
-		svcStatuses.includes("partial");
-	const overallClass = onFire ? "down" : hasDegraded ? "degraded" : "up";
-	const overallText = onFire
-		? "On fire"
-		: hasDegraded
-			? "Some systems degraded"
-			: "All systems operational";
+	const { grade: overallClass, label: overallText } = await getOverallStatus(env);
 
 	const html = `<!DOCTYPE html>
 <html lang="en">

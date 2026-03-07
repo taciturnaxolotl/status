@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { getManifest } from "../manifest";
 import { getLatestPing, getUptime7d } from "../db";
 import { getDeviceStatus } from "../tailscale";
+import { getOverallStatus } from "../overall";
 
 function worstStatus(statuses: string[]): string {
 	if (statuses.length === 0) return "unknown";
@@ -19,17 +20,13 @@ async function overallStatus(env: Env): Promise<Response> {
 	const allServices = Object.values(manifest).flatMap((m) => m.services);
 	const monitored = allServices.filter((s) => s.health_url !== null);
 
-	const statuses: string[] = [];
 	let totalUptime = 0;
-
 	for (const svc of monitored) {
-		const ping = await getLatestPing(env.DB, svc.name);
 		const uptime = await getUptime7d(env.DB, svc.name);
-		statuses.push((ping?.status as string) ?? "unknown");
 		totalUptime += uptime;
 	}
 
-	const status = worstStatus(statuses);
+	const { grade } = await getOverallStatus(env);
 	const avgUptime =
 		monitored.length > 0
 			? Math.round((totalUptime / monitored.length) * 100) / 100
@@ -37,8 +34,8 @@ async function overallStatus(env: Env): Promise<Response> {
 
 	return Response.json(
 		{
-			ok: status === "up",
-			status,
+			ok: grade === "up",
+			status: grade,
 			uptime_7d: avgUptime,
 			services_total: allServices.length,
 			services_monitored: monitored.length,
@@ -79,15 +76,12 @@ async function fullStatus(env: Env): Promise<Response> {
 		}),
 	);
 
-	const allStatuses = machines
-		.filter((m) => m.type === "server")
-		.flatMap((m) => [m.online ? "up" : "down", ...m.services.map((s) => s.status)]);
-	const status = worstStatus(allStatuses);
+	const { grade } = await getOverallStatus(env);
 
 	return Response.json(
 		{
-			ok: status === "up",
-			status,
+			ok: grade === "up",
+			status: grade,
 			machines,
 		}	);
 }
