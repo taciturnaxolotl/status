@@ -3,9 +3,9 @@ import { getManifest } from "./manifest";
 import { checkHealth } from "./health";
 import { insertPing, pruneOldPings } from "./db";
 import { refreshDevices } from "./tailscale";
-import { handleStatus } from "./routes/status";
+import { handleStatusRoute } from "./routes/status";
 import { handleUptime } from "./routes/uptime";
-import { handleBadge, handleOverallBadge } from "./routes/badge";
+import { handleBadgeRoute } from "./routes/badge";
 import { handleIndex } from "./routes/index";
 
 export default {
@@ -17,8 +17,9 @@ export default {
 			return handleIndex(env);
 		}
 
-		if (path === "/api/status") {
-			return handleStatus(env);
+		if (path.startsWith("/api/status")) {
+			const res = await handleStatusRoute(env, path);
+			if (res) return res;
 		}
 
 		const uptimeMatch = path.match(/^\/api\/uptime\/(.+)$/);
@@ -26,13 +27,9 @@ export default {
 			return handleUptime(env, uptimeMatch[1], url);
 		}
 
-		if (path === "/badge") {
-			return handleOverallBadge(env);
-		}
-
-		const badgeMatch = path.match(/^\/badge\/(.+)$/);
-		if (badgeMatch) {
-			return handleBadge(env, badgeMatch[1]);
+		if (path.startsWith("/badge")) {
+			const badge = await handleBadgeRoute(env, path, url);
+			if (badge) return badge;
 		}
 
 		return new Response("Not Found", { status: 404 });

@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
 import { getLatestPing, getUptime7d } from "../db";
+import { getDeviceStatus } from "../tailscale";
 
 const COLORS: Record<string, string> = {
 	up: "#3cc068",
@@ -38,11 +39,63 @@ function textWidth(s: string): number {
 	return w;
 }
 
-function makeBadge(label: string, status: string, uptime: number): string {
-	const color = COLORS[status] ?? COLORS.unknown;
-	const statusLabel = STATUS_LABELS[status] ?? "unknown";
-	const value = `${statusLabel} ${uptime}%`;
+function textColorForBg(hex: string): string {
+	const c = hex.replace("#", "");
+	const r = parseInt(c.slice(0, 2), 16);
+	const g = parseInt(c.slice(2, 4), 16);
+	const b = parseInt(c.slice(4, 6), 16);
+	const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+	return lum > 0.5 ? "#333" : "#fff";
+}
 
+interface BadgeData {
+	label: string;
+	status: string;
+	value: string;
+}
+
+interface StyleOpts {
+	style: "flat" | "for-the-badge";
+	colorA: string;
+	colorB: string;
+	label?: string;
+}
+
+function parseStyleOpts(url: URL, status: string): StyleOpts {
+	const colorA = parseColor(url.searchParams.get("colorA")) ?? "#555";
+	const colorB =
+		parseColor(url.searchParams.get("colorB")) ??
+		COLORS[status] ??
+		COLORS.unknown;
+	return {
+		style:
+			url.searchParams.get("style") === "for-the-badge"
+				? "for-the-badge"
+				: "flat",
+		colorA,
+		colorB,
+		label: url.searchParams.get("label") ?? undefined,
+	};
+}
+
+function parseColor(s: string | null): string | undefined {
+	if (!s) return undefined;
+	return s.startsWith("#") ? s : `#${s}`;
+}
+
+function renderBadge(data: BadgeData, opts: StyleOpts): string {
+	const label = opts.label ?? data.label;
+	return opts.style === "for-the-badge"
+		? renderForTheBadge(label, data.value, opts.colorA, opts.colorB)
+		: renderFlat(label, data.value, opts.colorA, opts.colorB);
+}
+
+function renderFlat(
+	label: string,
+	value: string,
+	colorA: string,
+	colorB: string,
+): string {
 	const pad = 20;
 	const labelW = Math.round(textWidth(label) + pad);
 	const valueW = Math.round(textWidth(value) + pad);
@@ -50,29 +103,56 @@ function makeBadge(label: string, status: string, uptime: number): string {
 	const labelX = labelW / 2;
 	const valueX = labelW + valueW / 2;
 
-	return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total}" height="20" role="img">
-  <title>${label}: ${value}</title>
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="20" role="img">
+  <title>${esc(label)}: ${esc(value)}</title>
   <linearGradient id="s" x2="0" y2="100%">
     <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
     <stop offset="1" stop-opacity=".1"/>
   </linearGradient>
   <clipPath id="r"><rect width="${total}" height="20" rx="3" fill="#fff"/></clipPath>
   <g clip-path="url(#r)">
-    <rect width="${labelW}" height="20" fill="#555"/>
-    <rect x="${labelW}" width="${valueW}" height="20" fill="${color}"/>
+    <rect width="${labelW}" height="20" fill="${colorA}"/>
+    <rect x="${labelW}" width="${valueW}" height="20" fill="${colorB}"/>
     <rect width="${total}" height="20" fill="url(#s)"/>
   </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
-    <text aria-hidden="true" x="${labelX}" y="15" fill="#010101" fill-opacity=".3">${esc(label)}</text>
-    <text x="${labelX}" y="14">${esc(label)}</text>
-    <text aria-hidden="true" x="${valueX}" y="15" fill="#010101" fill-opacity=".3">${esc(value)}</text>
-    <text x="${valueX}" y="14">${esc(value)}</text>
+  <g text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+    <text x="${labelX}" y="14" fill="${textColorForBg(colorA)}">${esc(label)}</text>
+    <text x="${valueX}" y="14" fill="${textColorForBg(colorB)}">${esc(value)}</text>
   </g>
 </svg>`;
 }
 
+function renderForTheBadge(
+	label: string,
+	value: string,
+	colorA: string,
+	colorB: string,
+): string {
+	const labelUp = label.toUpperCase();
+	const valueUp = value.toUpperCase();
+	const charW = 75;
+	const pad = 240;
+	const labelTL = labelUp.length * charW;
+	const valueTL = valueUp.length * charW;
+	const labelW = (labelTL + pad) / 10;
+	const valueW = (valueTL + pad) / 10;
+	const total = labelW + valueW;
+	const labelX = labelW * 5;
+	const valueX = (labelW + valueW / 2) * 10;
+	const h = 28;
+
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${h}" role="img" aria-label="${esc(label)}: ${esc(value)}"><title>${esc(label)}: ${esc(value)}</title><g shape-rendering="crispEdges"><rect width="${labelW}" height="${h}" fill="${colorA}"/><rect x="${labelW}" width="${valueW}" height="${h}" fill="${colorB}"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100"><text transform="scale(.1)" x="${labelX}" y="175" textLength="${labelTL}" fill="${textColorForBg(colorA)}">${esc(labelUp)}</text><text transform="scale(.1)" x="${valueX}" y="175" textLength="${valueTL}" fill="${textColorForBg(colorB)}" font-weight="bold">${esc(valueUp)}</text></g></svg>`;
+}
+
 function esc(s: string): string {
 	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function worstStatus(statuses: string[]): string {
+	if (statuses.includes("down")) return "down";
+	if (statuses.includes("degraded")) return "degraded";
+	if (statuses.includes("unknown")) return "unknown";
+	return "up";
 }
 
 const BADGE_HEADERS = {
@@ -81,43 +161,118 @@ const BADGE_HEADERS = {
 	"Access-Control-Allow-Origin": "*",
 };
 
-export async function handleBadge(
-	env: Env,
-	serviceId: string,
-): Promise<Response> {
-	const ping = await getLatestPing(env.DB, serviceId);
-	const uptime = await getUptime7d(env.DB, serviceId);
-	const status = (ping?.status as string) ?? "unknown";
-
-	return new Response(makeBadge(serviceId, status, uptime), {
-		headers: BADGE_HEADERS,
-	});
+function badgeResponse(data: BadgeData, url: URL): Response {
+	const opts = parseStyleOpts(url, data.status);
+	return new Response(renderBadge(data, opts), { headers: BADGE_HEADERS });
 }
 
-export async function handleOverallBadge(env: Env): Promise<Response> {
+// GET /badge/service/:id
+async function serviceBadge(env: Env, id: string, url: URL): Promise<Response> {
+	const ping = await getLatestPing(env.DB, id);
+	const uptime = await getUptime7d(env.DB, id);
+	const status = (ping?.status as string) ?? "unknown";
+	const statusLabel = STATUS_LABELS[status] ?? "unknown";
+	return badgeResponse(
+		{ label: id, status, value: `${statusLabel} ${uptime}%` },
+		url,
+	);
+}
+
+// GET /badge/machine/:name
+async function machineBadge(
+	env: Env,
+	name: string,
+	url: URL,
+): Promise<Response> {
+	const manifest = await getManifest(env);
+	const machine = manifest[name];
+	if (!machine) {
+		return new Response("Machine not found", { status: 404 });
+	}
+
+	const online = await getDeviceStatus(env, machine.tailscale_host);
+	if (!online) {
+		return badgeResponse({ label: name, status: "down", value: "offline" }, url);
+	}
+
+	const monitored = machine.services.filter((s) => s.health_url);
+	if (monitored.length === 0) {
+		return badgeResponse(
+			{ label: name, status: online ? "up" : "down", value: online ? "online" : "offline" },
+			url,
+		);
+	}
+
+	const statuses: string[] = [];
+	let totalUptime = 0;
+	for (const svc of monitored) {
+		const ping = await getLatestPing(env.DB, svc.name);
+		const uptime = await getUptime7d(env.DB, svc.name);
+		statuses.push((ping?.status as string) ?? "unknown");
+		totalUptime += uptime;
+	}
+
+	const status = worstStatus(statuses);
+	const avgUptime = Math.round((totalUptime / monitored.length) * 100) / 100;
+	const statusLabel = STATUS_LABELS[status] ?? "unknown";
+	return badgeResponse(
+		{ label: name, status, value: `${statusLabel} ${avgUptime}%` },
+		url,
+	);
+}
+
+// GET /badge/overall
+async function overallBadge(env: Env, url: URL): Promise<Response> {
 	const manifest = await getManifest(env);
 	const allServices = Object.values(manifest).flatMap((m) => m.services);
 	const monitored = allServices.filter((s) => s.health_url !== null);
 
-	let worst: string = "up";
+	const statuses: string[] = [];
 	let totalUptime = 0;
 
 	for (const svc of monitored) {
 		const ping = await getLatestPing(env.DB, svc.name);
 		const uptime = await getUptime7d(env.DB, svc.name);
+		statuses.push((ping?.status as string) ?? "unknown");
 		totalUptime += uptime;
-		const s = (ping?.status as string) ?? "unknown";
-		if (s === "down") worst = "down";
-		else if (s === "degraded" && worst !== "down") worst = "degraded";
-		else if (s === "unknown" && worst === "up") worst = "unknown";
 	}
 
+	const status = worstStatus(statuses);
 	const avgUptime =
 		monitored.length > 0
 			? Math.round((totalUptime / monitored.length) * 100) / 100
 			: 100;
+	const statusLabel = STATUS_LABELS[status] ?? "unknown";
+	return badgeResponse(
+		{ label: "infra", status, value: `${statusLabel} ${avgUptime}%` },
+		url,
+	);
+}
 
-	return new Response(makeBadge("infra", worst, avgUptime), {
-		headers: BADGE_HEADERS,
-	});
+export async function handleBadgeRoute(
+	env: Env,
+	path: string,
+	url: URL,
+): Promise<Response | null> {
+	if (path === "/badge" || path === "/badge/overall") {
+		return overallBadge(env, url);
+	}
+
+	const serviceMatch = path.match(/^\/badge\/service\/(.+)$/);
+	if (serviceMatch) {
+		return serviceBadge(env, serviceMatch[1], url);
+	}
+
+	const machineMatch = path.match(/^\/badge\/machine\/(.+)$/);
+	if (machineMatch) {
+		return machineBadge(env, machineMatch[1], url);
+	}
+
+	// Legacy: /badge/:id → treat as service
+	const legacyMatch = path.match(/^\/badge\/(.+)$/);
+	if (legacyMatch) {
+		return serviceBadge(env, legacyMatch[1], url);
+	}
+
+	return null;
 }

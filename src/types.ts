@@ -22,23 +22,6 @@ export interface Machine {
 
 export type ServicesManifest = Record<string, Machine>;
 
-export interface StatusResponse {
-	ok: boolean;
-	machines: {
-		name: string;
-		hostname: string;
-		type: string;
-		online: boolean;
-		services: {
-			id: string;
-			name: string;
-			status: "up" | "degraded" | "down" | "unknown";
-			latency_ms: number | null;
-			uptime_7d: number;
-		}[];
-	}[];
-}
-
 export interface UptimeResponse {
 	service_id: string;
 	window_hours: number;
