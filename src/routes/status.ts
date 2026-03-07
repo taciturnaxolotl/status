@@ -7,8 +7,8 @@ const JSON_HEADERS = { "Access-Control-Allow-Origin": "*" };
 
 function worstStatus(statuses: string[]): string {
 	if (statuses.length === 0) return "unknown";
-	if (statuses.every((s) => s === "down")) return "down";
-	if (statuses.includes("down")) return "partial";
+	if (statuses.every((s) => s === "down" || s === "timeout")) return "down";
+	if (statuses.includes("down") || statuses.includes("timeout")) return "partial";
 	if (statuses.includes("misconfigured")) return "misconfigured";
 	if (statuses.includes("degraded")) return "degraded";
 	if (statuses.includes("unknown")) return "unknown";

@@ -40,11 +40,12 @@ export async function handleIndex(env: Env): Promise<Response> {
 	const activeServers = servers.filter((m) => m.services.length > 0);
 	const anyServerOffline = activeServers.some((m) => !m.online);
 	const svcStatuses = activeServers.flatMap((m) => m.services.map((s) => s.status));
-	const downCount = svcStatuses.filter((s) => s === "down").length;
+	const downCount = svcStatuses.filter((s) => s === "down" || s === "timeout").length;
 	const downRatio = svcStatuses.length > 0 ? downCount / svcStatuses.length : 0;
 	const onFire = anyServerOffline || downRatio >= 0.4;
 	const hasDegraded =
 		svcStatuses.includes("down") ||
+		svcStatuses.includes("timeout") ||
 		svcStatuses.includes("degraded") ||
 		svcStatuses.includes("misconfigured") ||
 		svcStatuses.includes("partial");
@@ -61,6 +62,7 @@ export async function handleIndex(env: Env): Promise<Response> {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>infra.dunkirk.sh</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html { min-height: 100%; }
@@ -72,6 +74,7 @@ export async function handleIndex(env: Env): Promise<Response> {
   .dot.degraded { background: #f39c12; }
   .dot.down { background: #e74c3c; }
   .dot.misconfigured { background: #9b59b6; }
+  .dot.timeout { background: #e74c3c; }
   .dot.unknown { background: #8b949e; }
   .dot.online { background: #2ecc71; }
   .dot.offline { background: #e74c3c; }

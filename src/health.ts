@@ -2,7 +2,7 @@ import type { Service } from "./types";
 
 const SLOW_THRESHOLD_MS = 3000;
 
-export type Status = "up" | "degraded" | "misconfigured" | "down" | "unknown";
+export type Status = "up" | "degraded" | "misconfigured" | "timeout" | "down" | "unknown";
 
 interface HealthResult {
 	status: Status;
@@ -36,7 +36,9 @@ export async function checkHealth(service: Service): Promise<HealthResult> {
 			return { status: "up", latency_ms };
 		}
 		return { status: "down", latency_ms };
-	} catch {
-		return { status: "down", latency_ms: Date.now() - start };
+	} catch (err) {
+		const latency_ms = Date.now() - start;
+		const isTimeout = err instanceof DOMException && err.name === "TimeoutError";
+		return { status: isTimeout ? "timeout" : "down", latency_ms };
 	}
 }

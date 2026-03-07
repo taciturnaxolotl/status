@@ -7,6 +7,7 @@ const COLORS: Record<string, string> = {
 	up: "#3cc068",
 	degraded: "#f0ad4e",
 	misconfigured: "#9b59b6",
+	timeout: "#e05d44",
 	partial: "#f0ad4e",
 	down: "#e05d44",
 	unknown: "#9f9f9f",
@@ -16,6 +17,7 @@ const STATUS_LABELS: Record<string, string> = {
 	up: "operational",
 	degraded: "degraded",
 	misconfigured: "misconfigured",
+	timeout: "timeout",
 	partial: "partial",
 	down: "down",
 	unknown: "unknown",
@@ -154,8 +156,8 @@ function esc(s: string): string {
 
 function worstStatus(statuses: string[]): string {
 	if (statuses.length === 0) return "unknown";
-	if (statuses.every((s) => s === "down")) return "down";
-	if (statuses.includes("down")) return "partial";
+	if (statuses.every((s) => s === "down" || s === "timeout")) return "down";
+	if (statuses.includes("down") || statuses.includes("timeout")) return "partial";
 	if (statuses.includes("misconfigured")) return "misconfigured";
 	if (statuses.includes("degraded")) return "degraded";
 	if (statuses.includes("unknown")) return "unknown";

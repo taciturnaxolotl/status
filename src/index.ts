@@ -4,6 +4,7 @@ import { checkHealth } from "./health";
 import { insertPing, pruneOldPings } from "./db";
 import { refreshDevices } from "./tailscale";
 import { handleStatusRoute } from "./routes/status";
+import { handleFavicon } from "./routes/favicon";
 import { handleUptime } from "./routes/uptime";
 import { handleBadgeRoute } from "./routes/badge";
 import { handleIndex } from "./routes/index";
@@ -15,6 +16,10 @@ export default {
 
 		if (path === "/" || path === "") {
 			return handleIndex(env);
+		}
+
+		if (path === "/favicon.svg") {
+			return handleFavicon(env);
 		}
 
 		if (path === "/health") {
