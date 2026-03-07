@@ -46,6 +46,17 @@ export async function handleIndex(env: Env): Promise<Response> {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>infra.dunkirk.sh</title>
+<meta name="description" content="${overallText}">
+<meta property="og:title" content="infra.dunkirk.sh">
+<meta property="og:description" content="${overallText}">
+<meta property="og:image" content="https://l4.dunkirk.sh/i/fxRXrFoB2OgE.png">
+<meta property="og:url" content="https://infra.dunkirk.sh">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="infra.dunkirk.sh">
+<meta name="twitter:description" content="${overallText}">
+<meta name="twitter:image" content="https://l4.dunkirk.sh/i/fxRXrFoB2OgE.png">
+<meta name="theme-color" content="${overallClass === "up" ? "#2ecc71" : overallClass === "degraded" ? "#f39c12" : "#e74c3c"}">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
