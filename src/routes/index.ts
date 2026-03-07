@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getLatestPing, getUptime7d } from "../db";
+import { getLatestPing, getUptime7d, getLastCheckTime } from "../db";
 import { getDeviceStatus } from "../tailscale";
 import { COMMIT_SHA } from "../version";
 
@@ -28,6 +28,11 @@ export async function handleIndex(env: Env): Promise<Response> {
 			return { name, type: machine.type, online, services };
 		}),
 	);
+
+	const lastCheck = await getLastCheckTime(env.DB);
+	const lastCheckISO = lastCheck
+		? new Date(lastCheck * 1000).toISOString()
+		: null;
 
 	const servers = machines.filter((m) => m.type === "server");
 	const clients = machines.filter((m) => m.type === "client");
@@ -110,7 +115,37 @@ ${clients.length > 0 ? `<div class="clients">
 ${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "offline"}"></span>${esc(m.name)}</span>`).join("\n")}
 </div>
 </div>` : ""}
-<footer><span>checked every 5 min</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></footer>
+<footer><span>${lastCheckISO ? `updated <relative-time datetime="${lastCheckISO}" prefix="">loading</relative-time>` : "no checks yet"}</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></footer>
+<script>
+class RelativeTimeElement extends HTMLElement {
+  static get observedAttributes() { return ['datetime']; }
+  connectedCallback() { this.update(); }
+  disconnectedCallback() { this.timer && clearTimeout(this.timer); }
+  attributeChangedCallback() { this.update(); }
+  get datetime() { return this.getAttribute('datetime') || ''; }
+  update() {
+    const d = this.datetime;
+    if (!d) return;
+    const date = new Date(d);
+    if (isNaN(date.getTime())) return;
+    const diff = Date.now() - date.getTime();
+    const abs = Math.abs(diff);
+    const s = Math.floor(abs / 1000);
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    const days = Math.floor(h / 24);
+    const rtf = new Intl.RelativeTimeFormat(navigator.language, { numeric: 'auto' });
+    const sign = diff > 0 ? -1 : 1;
+    if (s < 60) this.textContent = rtf.format(sign * s, 'second');
+    else if (m < 60) this.textContent = rtf.format(sign * m, 'minute');
+    else if (h < 24) this.textContent = rtf.format(sign * h, 'hour');
+    else this.textContent = rtf.format(sign * days, 'day');
+    const delay = s < 60 ? 1000 : m < 60 ? 60000 : 3600000;
+    this.timer = setTimeout(() => this.update(), delay);
+  }
+}
+customElements.define('relative-time', RelativeTimeElement);
+</script>
 </body>
 </html>`;
 

@@ -17,6 +17,10 @@ export default {
 			return handleIndex(env);
 		}
 
+		if (path === "/health") {
+			return Response.json({ ok: true, timestamp: new Date().toISOString() });
+		}
+
 		if (path.startsWith("/api/status")) {
 			const res = await handleStatusRoute(env, path);
 			if (res) return res;

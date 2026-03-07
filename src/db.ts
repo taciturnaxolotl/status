@@ -86,6 +86,15 @@ export async function getUptimeBuckets(
 	return result;
 }
 
+export async function getLastCheckTime(
+	db: D1Database,
+): Promise<number | null> {
+	const row = await db
+		.prepare("SELECT MAX(timestamp) as ts FROM pings")
+		.first<{ ts: number | null }>();
+	return row?.ts ?? null;
+}
+
 export async function pruneOldPings(
 	db: D1Database,
 	days: number,
