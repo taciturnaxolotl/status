@@ -9,7 +9,7 @@ function worstStatus(statuses: string[]): string {
 	if (statuses.length === 0) return "unknown";
 	if (statuses.every((s) => s === "down" || s === "timeout")) return "down";
 	if (statuses.includes("down") || statuses.includes("timeout")) return "partial";
-	if (statuses.includes("misconfigured")) return "misconfigured";
+	if (statuses.includes("misconfigured")) return "degraded";
 	if (statuses.includes("degraded")) return "degraded";
 	if (statuses.includes("unknown")) return "unknown";
 	return "up";
@@ -75,7 +75,9 @@ async function fullStatus(env: Env): Promise<Response> {
 				hostname: machine.hostname,
 				type: machine.type,
 				online,
-				status: online ? worstStatus(svcStatuses) : "down",
+				status: online
+				? svcStatuses.length > 0 ? worstStatus(svcStatuses) : "up"
+				: "down",
 				services,
 			};
 		}),
