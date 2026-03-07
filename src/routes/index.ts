@@ -86,20 +86,20 @@ export async function handleIndex(env: Env): Promise<Response> {
 </head>
 <body>
 <h1>infra.dunkirk.sh</h1>
-<p class="overall"><span class="dot ${overallClass}" title="${overallClass}"></span>${overallText}</p>
+<p class="overall"><span class="dot ${overallClass}" id="overall-dot" title="${overallClass}"></span><span id="overall-text">${overallText}</span></p>
 ${servers
 	.map(
 		(m) => `<div class="machine">
-<div class="machine-header"><span class="dot ${m.online ? "online" : m.services.length === 0 ? "unknown" : "offline"}" title="${m.online ? "online" : "offline"}"></span>${esc(m.name)}<span class="machine-type">${esc(m.type)}</span></div>
+<div class="machine-header"><span class="dot ${m.online ? "online" : m.services.length === 0 ? "unknown" : "offline"}" data-machine="${esc(m.name)}" title="${m.online ? "online" : "offline"}"></span>${esc(m.name)}<span class="machine-type">${esc(m.type)}</span></div>
 ${m.services.length === 0 ? `<div class="no-services">no services</div>` : m.services
 	.map(
 		(s) => `<div class="service">
   <div class="svc-left">
-    <span class="dot ${s.status}" title="${s.status}"></span>
+    <span class="dot ${s.status}" data-service="${esc(s.name)}" title="${s.status}"></span>
     <span class="svc-name"><a href="${esc(s.url)}">${esc(s.name)}</a></span>
   </div>
   <div class="svc-right">
-    ${s.has_health ? `<span class="uptime">${s.uptime_7d}%</span><span class="latency">${s.latency_ms !== null ? s.latency_ms + "ms" : "—"}</span>` : `<span class="latency">no health check</span>`}
+    ${s.has_health ? `<span class="uptime" data-service-uptime="${esc(s.name)}">${s.uptime_7d}%</span><span class="latency" data-service-latency="${esc(s.name)}">${s.latency_ms !== null ? s.latency_ms + "ms" : "—"}</span>` : `<span class="latency">no health check</span>`}
   </div>
 </div>`,
 	)
@@ -110,7 +110,7 @@ ${m.services.length === 0 ? `<div class="no-services">no services</div>` : m.ser
 ${clients.length > 0 ? `<div class="clients">
 <div class="clients-header">devices</div>
 <div class="clients-list">
-${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "unknown"}" title="${m.online ? "online" : "offline"}"></span>${esc(m.name)}</span>`).join("\n")}
+${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "unknown"}" data-machine="${esc(m.name)}" title="${m.online ? "online" : "offline"}"></span>${esc(m.name)}</span>`).join("\n")}
 </div>
 </div>` : ""}
 <footer><span>${lastCheckISO ? `updated <relative-time datetime="${lastCheckISO}" prefix="">loading</relative-time>` : "no checks yet"}</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></footer>
@@ -143,6 +143,61 @@ class RelativeTimeElement extends HTMLElement {
   }
 }
 customElements.define('relative-time', RelativeTimeElement);
+
+const CHECK_INTERVAL = 5 * 60 * 1000;
+const BUFFER = 10 * 1000;
+const OVERALL_LABELS = { up: 'All systems operational', degraded: 'Some systems degraded', down: 'On fire' };
+
+function updateFavicon(status) {
+  const colors = { up: '#2ecc71', degraded: '#f39c12', down: '#e74c3c' };
+  const color = colors[status] || '#8b949e';
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="' + color + '"/></svg>';
+  const link = document.querySelector('link[rel="icon"]');
+  if (link) link.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+
+function setDot(el, cls) {
+  el.className = 'dot ' + cls;
+  el.title = cls;
+}
+
+function applyUpdate(data) {
+  updateFavicon(data.status);
+  const dot = document.getElementById('overall-dot');
+  const text = document.getElementById('overall-text');
+  if (dot) setDot(dot, data.status);
+  if (text) text.textContent = OVERALL_LABELS[data.status] || data.status;
+
+  for (const machine of data.machines) {
+    const mDot = document.querySelector('[data-machine="' + machine.name + '"]');
+    if (mDot) setDot(mDot, machine.online ? 'online' : machine.services.length === 0 ? 'unknown' : 'offline');
+    for (const svc of machine.services) {
+      const sDot = document.querySelector('[data-service="' + svc.id + '"]');
+      if (sDot) setDot(sDot, svc.status);
+      const uEl = document.querySelector('[data-service-uptime="' + svc.id + '"]');
+      if (uEl) uEl.textContent = svc.uptime_7d + '%';
+      const lEl = document.querySelector('[data-service-latency="' + svc.id + '"]');
+      if (lEl) lEl.textContent = svc.latency_ms !== null ? svc.latency_ms + 'ms' : '—';
+    }
+  }
+
+  if (data.last_check) {
+    const rt = document.querySelector('relative-time');
+    if (rt) rt.setAttribute('datetime', new Date(data.last_check * 1000).toISOString());
+  }
+}
+
+function scheduleRefresh() {
+  fetch('/api/status').then(r => r.json()).then(data => {
+    applyUpdate(data);
+    if (!data.last_check) { setTimeout(scheduleRefresh, CHECK_INTERVAL); return; }
+    const lastCheck = data.last_check * 1000;
+    const nextCheck = lastCheck + CHECK_INTERVAL + BUFFER;
+    const delay = Math.max(nextCheck - Date.now(), BUFFER);
+    setTimeout(scheduleRefresh, delay);
+  }).catch(() => { setTimeout(scheduleRefresh, CHECK_INTERVAL); });
+}
+scheduleRefresh();
 </script>
 </body>
 </html>`;

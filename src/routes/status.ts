@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getLatestPing, getUptime7d } from "../db";
+import { getLatestPing, getUptime7d, getLastCheckTime } from "../db";
 import { getDeviceStatus } from "../tailscale";
 import { getOverallStatus } from "../overall";
 
@@ -77,11 +77,13 @@ async function fullStatus(env: Env): Promise<Response> {
 	);
 
 	const { grade } = await getOverallStatus(env);
+	const lastCheck = await getLastCheckTime(env.DB);
 
 	return Response.json(
 		{
 			ok: grade === "up",
 			status: grade,
+			last_check: lastCheck,
 			machines,
 		}	);
 }
