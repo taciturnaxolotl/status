@@ -69,7 +69,12 @@ export default {
 			});
 		}
 
-		const response = await handleRequest(request, env);
+		let response: Response;
+		try {
+			response = await handleRequest(request, env);
+		} catch {
+			response = Response.json({ error: "internal server error" }, { status: 500 });
+		}
 		const corsResponse = new Response(response.body, response);
 		corsResponse.headers.set("Access-Control-Allow-Origin", "*");
 		return corsResponse;

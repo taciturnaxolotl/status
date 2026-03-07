@@ -1,6 +1,6 @@
 import type { Env, ServicesManifest } from "./types";
 
-const MANIFEST_URL = "https://infra.dunkirk.sh/services.json";
+const MANIFEST_URL = "https://dots.dunkirk.sh/services.json";
 const KV_KEY = "services_manifest";
 const TTL_SECONDS = 300;
 
