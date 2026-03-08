@@ -91,6 +91,6 @@ export default {
 		);
 
 		await Promise.all(checks);
-		await pruneOldPings(env.DB, 90);
+		await pruneOldPings(env.DB, 365);
 	},
 } satisfies ExportedHandler<Env>;
