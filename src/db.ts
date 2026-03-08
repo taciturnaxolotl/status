@@ -86,6 +86,57 @@ export async function getUptimeBuckets(
 	return result;
 }
 
+export async function getOverallUptimeDays(
+	db: D1Database,
+	days: number,
+): Promise<{ date: string; status: "up" | "degraded" | "down" | "none" }[]> {
+	const since = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+	const rows = await db
+		.prepare(
+			`SELECT
+				(timestamp / 86400) AS day_bucket,
+				status,
+				COUNT(*) AS cnt
+			FROM pings
+			WHERE timestamp >= ?
+			GROUP BY day_bucket, status
+			ORDER BY day_bucket ASC`,
+		)
+		.bind(since)
+		.all();
+
+	const bucketMap = new Map<number, Map<string, number>>();
+	for (const row of rows.results) {
+		const b = row.day_bucket as number;
+		if (!bucketMap.has(b)) bucketMap.set(b, new Map());
+		bucketMap.get(b)!.set(row.status as string, row.cnt as number);
+	}
+
+	const now = Math.floor(Date.now() / 1000);
+	const todayBucket = Math.floor(now / 86400);
+	const result: { date: string; status: "up" | "degraded" | "down" | "none" }[] = [];
+
+	for (let i = days - 1; i >= 0; i--) {
+		const bucket = todayBucket - i;
+		const d = new Date(bucket * 86400 * 1000);
+		const date = d.toISOString().slice(0, 10);
+		const counts = bucketMap.get(bucket);
+
+		if (!counts) {
+			result.push({ date, status: "none" });
+			continue;
+		}
+
+		let status: "up" | "degraded" | "down" = "up";
+		if (counts.has("down") || counts.has("timeout")) status = "down";
+		else if (counts.has("degraded") || counts.has("misconfigured")) status = "degraded";
+
+		result.push({ date, status });
+	}
+
+	return result;
+}
+
 export async function getLastCheckTime(
 	db: D1Database,
 ): Promise<number | null> {

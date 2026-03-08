@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getLatestPing, getUptime7d, getLastCheckTime } from "../db";
+import { getLatestPing, getUptime7d, getOverallUptimeDays, getLastCheckTime } from "../db";
 import { getDeviceStatus } from "../tailscale";
 import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";
@@ -39,6 +39,7 @@ export async function handleIndex(env: Env): Promise<Response> {
 	const clients = machines.filter((m) => m.type === "client");
 
 	const { grade: overallClass, label: overallText } = await getOverallStatus(env);
+	const uptimeDays = await getOverallUptimeDays(env.DB, 90);
 
 	const html = `<!DOCTYPE html>
 <html lang="en">
@@ -90,12 +91,20 @@ export async function handleIndex(env: Env): Promise<Response> {
   .clients-header { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #8b949e; margin-bottom: 0.5rem; }
   .clients-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
   .client { display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; color: #8b949e; }
-  footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid #21262d; font-size: 0.7rem; color: #8b949e; display: flex; justify-content: space-between; }
+  .uptime-bar { display: flex; position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 10; }
+  .uptime-bar .day { flex: 1; }
+  .uptime-bar .day.up { background: #2ecc71; }
+  .uptime-bar .day.degraded { background: #f39c12; }
+  .uptime-bar .day.down { background: #e74c3c; }
+  .uptime-bar .day.none { background: #21262d; }
+  footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid #21262d; font-size: 0.7rem; color: #8b949e; }
+  .footer-meta { display: flex; justify-content: space-between; }
   footer a { color: #8b949e; text-decoration: none; }
   footer a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
+<div class="uptime-bar">${uptimeDays.map((d) => `<div class="day ${d.status}" title="${d.date}: ${d.status}"></div>`).join("")}</div>
 <h1>infra.dunkirk.sh</h1>
 <p class="overall"><span class="dot ${overallClass}" id="overall-dot" title="${overallClass}"></span><span id="overall-text">${overallText}</span></p>
 ${servers
@@ -124,7 +133,9 @@ ${clients.length > 0 ? `<div class="clients">
 ${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "unknown"}" data-machine="${esc(m.name)}" title="${m.online ? "online" : "offline"}"></span>${esc(m.name)}</span>`).join("\n")}
 </div>
 </div>` : ""}
-<footer><span>${lastCheckISO ? `updated <relative-time datetime="${lastCheckISO}" prefix="">loading</relative-time>` : "no checks yet"}</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></footer>
+<footer>
+<div class="footer-meta"><span>${lastCheckISO ? `updated <relative-time datetime="${lastCheckISO}" prefix="">loading</relative-time>` : "no checks yet"}</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></div>
+</footer>
 <script>
 class RelativeTimeElement extends HTMLElement {
   static get observedAttributes() { return ['datetime']; }
