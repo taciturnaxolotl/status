@@ -1,6 +1,6 @@
 import type { Env } from "./types";
 import { getManifest } from "./manifest";
-import { getLatestPing } from "./db";
+import { getLatestPing, getActiveIncidents } from "./db";
 import { getDeviceStatus } from "./tailscale";
 
 export type OverallGrade = "up" | "degraded" | "down";
@@ -42,7 +42,11 @@ export async function getOverallStatus(env: Env): Promise<OverallStatus> {
 			s === "misconfigured",
 	);
 
-	if (onFire) return { grade: "down", label: "On fire" };
-	if (hasDegraded) return { grade: "degraded", label: "Some systems degraded" };
+	const activeIncidents = await getActiveIncidents(env.DB);
+	const hasCritical = activeIncidents.some((i) => i.severity === "critical");
+	const hasMajor = activeIncidents.some((i) => i.severity === "major");
+
+	if (hasCritical || onFire) return { grade: "down", label: "On fire" };
+	if (hasMajor || hasDegraded) return { grade: "degraded", label: "Some systems degraded" };
 	return { grade: "up", label: "All systems operational" };
 }

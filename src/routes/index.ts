@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getLatestPing, getUptime7d, getOverallUptimeDays, getLastCheckTime } from "../db";
+import { getLatestPing, getUptime7d, getOverallUptimeDays, getLastCheckTime, getActiveIncidentsWithUpdates, getRecentIncidents } from "../db";
 import { getDeviceStatus } from "../tailscale";
 import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";
@@ -40,6 +40,9 @@ export async function handleIndex(env: Env): Promise<Response> {
 
 	const { grade: overallClass, label: overallText } = await getOverallStatus(env);
 	const uptimeDays = await getOverallUptimeDays(env.DB, 90);
+	const activeIncidents = await getActiveIncidentsWithUpdates(env.DB);
+	const recentIncidents = await getRecentIncidents(env.DB, 7);
+	const resolvedIncidents = recentIncidents.filter((i) => i.status === "resolved");
 
 	const html = `<!DOCTYPE html>
 <html lang="en">
@@ -97,6 +100,37 @@ export async function handleIndex(env: Env): Promise<Response> {
   .uptime-bar .day.degraded { background: #f39c12; }
   .uptime-bar .day.down { background: #e74c3c; }
   .uptime-bar .day.none { background: #21262d; }
+  .incidents { margin-bottom: 1.5rem; }
+  .incident-banner { background: #2d1b1b; border: 1px solid #e74c3c; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.5rem; }
+  .incident-banner.major { border-color: #f39c12; background: #2d2517; }
+  .incident-banner.minor { border-color: #8b949e; background: #21262d; }
+  .incident-title { font-size: 0.85rem; font-weight: 500; margin-bottom: 0.25rem; }
+  .incident-meta { font-size: 0.7rem; color: #8b949e; display: flex; gap: 0.75rem; }
+  .incident-status { text-transform: uppercase; letter-spacing: 0.05em; }
+  .incident-status.investigating { color: #e74c3c; }
+  .incident-status.identified { color: #f39c12; }
+  .incident-status.monitoring { color: #3498db; }
+  .incident-triage { margin-top: 0.5rem; }
+  .incident-triage summary { font-size: 0.75rem; color: #8b949e; cursor: pointer; }
+  .incident-triage pre { font-size: 0.7rem; color: #c9d1d9; background: #161b22; padding: 0.5rem; border-radius: 4px; margin-top: 0.25rem; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; }
+  .incident-timeline { margin-top: 0.5rem; padding-left: 0.75rem; border-left: 2px solid #21262d; }
+  .timeline-entry { padding: 0.25rem 0 0.25rem 0.5rem; font-size: 0.7rem; position: relative; }
+  .timeline-entry::before { content: ''; position: absolute; left: -0.75rem; top: 0.55rem; width: 6px; height: 6px; border-radius: 50%; background: #30363d; transform: translateX(-2px); }
+  .timeline-entry.investigating::before { background: #e74c3c; }
+  .timeline-entry.identified::before { background: #f39c12; }
+  .timeline-entry.monitoring::before { background: #3498db; }
+  .timeline-entry.resolved::before { background: #2ecc71; }
+  .timeline-status { text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.6rem; font-weight: 600; }
+  .timeline-status.investigating { color: #e74c3c; }
+  .timeline-status.identified { color: #f39c12; }
+  .timeline-status.monitoring { color: #3498db; }
+  .timeline-status.resolved { color: #2ecc71; }
+  .timeline-time { color: #484f58; margin-right: 0.5rem; }
+  .timeline-msg { color: #8b949e; }
+  .resolved-incidents { margin-top: 0.75rem; }
+  .resolved-header { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #8b949e; margin-bottom: 0.25rem; }
+  .resolved-item { font-size: 0.75rem; color: #8b949e; padding: 0.25rem 0; border-bottom: 1px solid #21262d; }
+  .resolved-item:last-child { border-bottom: none; }
   footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid #21262d; font-size: 0.7rem; color: #8b949e; }
   .footer-meta { display: flex; justify-content: space-between; }
   footer a { color: #8b949e; text-decoration: none; }
@@ -107,6 +141,24 @@ export async function handleIndex(env: Env): Promise<Response> {
 <div class="uptime-bar">${uptimeDays.map((d) => `<div class="day ${d.status}" title="${d.date}: ${d.status}"></div>`).join("")}</div>
 <h1>infra.dunkirk.sh</h1>
 <p class="overall"><span class="dot ${overallClass}" id="overall-dot" title="${overallClass}"></span><span id="overall-text">${overallText}</span></p>
+${activeIncidents.length > 0 ? `<div class="incidents">
+${activeIncidents.map((i) => `<div class="incident-banner ${i.severity}">
+  <div class="incident-title">${esc(i.title)}</div>
+  <div class="incident-meta">
+    <span class="incident-status ${i.status}">${i.status}</span>
+    <span>${esc(i.service_id)}</span>
+    <span>started <relative-time datetime="${new Date(i.started_at * 1000).toISOString()}">loading</relative-time></span>
+  </div>
+  ${i.triage_report ? `<details class="incident-triage"><summary>triage report</summary><pre>${esc(i.triage_report)}</pre></details>` : ""}
+  ${i.updates.length > 0 ? `<div class="incident-timeline">
+${i.updates.map((u) => `<div class="timeline-entry ${u.status}">
+  <span class="timeline-time">${new Date(u.created_at * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })}</span>
+  <span class="timeline-status ${u.status}">${esc(u.status)}</span>
+  <span class="timeline-msg">${esc(u.message)}</span>
+</div>`).join("\n")}
+</div>` : ""}
+</div>`).join("\n")}
+</div>` : ""}
 ${servers
 	.map(
 		(m) => `<div class="machine">
@@ -132,6 +184,10 @@ ${clients.length > 0 ? `<div class="clients">
 <div class="clients-list">
 ${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "unknown"}" data-machine="${esc(m.name)}" title="${m.online ? "online" : "offline"}"></span>${esc(m.name)}</span>`).join("\n")}
 </div>
+</div>` : ""}
+${resolvedIncidents.length > 0 ? `<div class="resolved-incidents">
+<div class="resolved-header">recent incidents</div>
+${resolvedIncidents.map((i) => `<div class="resolved-item">${esc(i.title)} — resolved <relative-time datetime="${new Date((i.resolved_at ?? i.updated_at) * 1000).toISOString()}">loading</relative-time></div>`).join("\n")}
 </div>` : ""}
 <footer>
 <div class="footer-meta"><span>${lastCheckISO ? `updated <relative-time datetime="${lastCheckISO}" prefix="">loading</relative-time>` : "no checks yet"}</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></div>
