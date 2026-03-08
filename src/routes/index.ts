@@ -1,12 +1,12 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getAllLatestPings, getAllUptime7d, getOverallUptimeDays, getLastCheckTime, getActiveIncidentsWithUpdates, getActiveIncidents, getRecentIncidents } from "../db";
+import { getAllLatestPings, getAllUptime7d, getOverallUptimeDays, getLastCheckTime, getActiveIncidentsWithUpdates, getActiveIncidents, getRecentResolvedIncidentsWithUpdates } from "../db";
 import { getDeviceStatus } from "../tailscale";
 import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";
 
 export async function handleIndex(env: Env): Promise<Response> {
-	const [manifest, latestPings, uptimes, lastCheck, uptimeDays, activeIncidentsWithUpdates, activeIncidentsList, recentIncidents] = await Promise.all([
+	const [manifest, latestPings, uptimes, lastCheck, uptimeDays, activeIncidentsWithUpdates, activeIncidentsList, resolvedIncidents] = await Promise.all([
 		getManifest(env),
 		getAllLatestPings(env.DB),
 		getAllUptime7d(env.DB),
@@ -14,7 +14,7 @@ export async function handleIndex(env: Env): Promise<Response> {
 		getOverallUptimeDays(env.DB, 90),
 		getActiveIncidentsWithUpdates(env.DB),
 		getActiveIncidents(env.DB),
-		getRecentIncidents(env.DB, 7),
+		getRecentResolvedIncidentsWithUpdates(env.DB, 7),
 	]);
 
 	const machineOnline = new Map<string, boolean>();
@@ -46,7 +46,6 @@ export async function handleIndex(env: Env): Promise<Response> {
 		manifest, latestPings, activeIncidents: activeIncidentsList, machineOnline,
 	});
 	const activeIncidents = activeIncidentsWithUpdates;
-	const resolvedIncidents = recentIncidents.filter((i) => i.status === "resolved");
 
 	const html = `<!DOCTYPE html>
 <html lang="en">
@@ -105,36 +104,38 @@ export async function handleIndex(env: Env): Promise<Response> {
   .uptime-bar .day.down { background: #e74c3c; }
   .uptime-bar .day.none { background: #21262d; }
   .incidents { margin-bottom: 1.5rem; }
-  .incident-banner { background: #2d1b1b; border: 1px solid #e74c3c; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.5rem; }
-  .incident-banner.major { border-color: #f39c12; background: #2d2517; }
-  .incident-banner.minor { border-color: #8b949e; background: #21262d; }
-  .incident-title { font-size: 0.85rem; font-weight: 500; margin-bottom: 0.25rem; }
-  .incident-meta { font-size: 0.7rem; color: #8b949e; display: flex; gap: 0.75rem; }
-  .incident-status { text-transform: uppercase; letter-spacing: 0.05em; }
+  .incident-banner { padding: 0.5rem 0; border-bottom: 1px solid #21262d; }
+  .incident-banner:last-child { border-bottom: none; }
+  .incident-header { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; font-size: 0.8rem; }
+  .incident-status { text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
   .incident-status.investigating { color: #e74c3c; }
   .incident-status.identified { color: #f39c12; }
-  .incident-status.monitoring { color: #3498db; }
-  .incident-triage { margin-top: 0.5rem; }
-  .incident-triage summary { font-size: 0.75rem; color: #8b949e; cursor: pointer; }
-  .incident-triage pre { font-size: 0.7rem; color: #c9d1d9; background: #161b22; padding: 0.5rem; border-radius: 4px; margin-top: 0.25rem; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; }
-  .incident-timeline { margin-top: 0.5rem; padding-left: 0.75rem; border-left: 2px solid #21262d; }
+  .incident-title { font-weight: 500; }
+  .incident-time { color: #8b949e; }
+  .incident-timeline { margin-top: 0.25rem; padding-left: 0.75rem; }
   .timeline-entry { padding: 0.25rem 0 0.25rem 0.5rem; font-size: 0.7rem; position: relative; }
-  .timeline-entry::before { content: ''; position: absolute; left: -0.75rem; top: 0.55rem; width: 6px; height: 6px; border-radius: 50%; background: #30363d; transform: translateX(-2px); }
+  .timeline-entry::before { content: ''; position: absolute; left: -0.75rem; top: 50%; width: 6px; height: 6px; border-radius: 50%; background: #30363d; transform: translate(-2px, -50%); z-index: 1; }
+  .timeline-entry::after { content: ''; position: absolute; left: calc(-0.75rem - 1px); top: 0; bottom: 0; width: 2px; background: #21262d; }
+  .timeline-entry:first-child::after { top: 50%; }
+  .timeline-entry:last-child::after { bottom: 50%; }
+  .timeline-entry:only-child::after { display: none; }
   .timeline-entry.investigating::before { background: #e74c3c; }
   .timeline-entry.identified::before { background: #f39c12; }
-  .timeline-entry.monitoring::before { background: #3498db; }
   .timeline-entry.resolved::before { background: #2ecc71; }
   .timeline-status { text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.6rem; font-weight: 600; }
   .timeline-status.investigating { color: #e74c3c; }
   .timeline-status.identified { color: #f39c12; }
-  .timeline-status.monitoring { color: #3498db; }
   .timeline-status.resolved { color: #2ecc71; }
   .timeline-time { color: #484f58; margin-right: 0.5rem; }
   .timeline-msg { color: #8b949e; }
+  .timeline-msg a { color: #8b949e; text-decoration: underline; }
+  .timeline-msg code { font-size: 0.65rem; background: #161b22; padding: 0.1rem 0.25rem; border-radius: 3px; }
   .resolved-incidents { margin-top: 0.75rem; }
-  .resolved-header { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #8b949e; margin-bottom: 0.25rem; }
-  .resolved-item { font-size: 0.75rem; color: #8b949e; padding: 0.25rem 0; border-bottom: 1px solid #21262d; }
+  .resolved-header { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #8b949e; margin-bottom: 0.5rem; }
+  .resolved-item { font-size: 0.75rem; color: #8b949e; padding: 0.4rem 0; border-bottom: 1px solid #21262d; }
   .resolved-item:last-child { border-bottom: none; }
+  .resolved-item-header { margin-bottom: 0.25rem; }
+  .resolved-item .incident-timeline { margin-top: 0.25rem; }
   footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid #21262d; font-size: 0.7rem; color: #8b949e; }
   .footer-meta { display: flex; justify-content: space-between; }
   footer a { color: #8b949e; text-decoration: none; }
@@ -146,14 +147,12 @@ export async function handleIndex(env: Env): Promise<Response> {
 <h1>infra.dunkirk.sh</h1>
 <p class="overall"><span class="dot ${overallClass}" id="overall-dot" title="${overallClass}"></span><span id="overall-text">${overallText}</span></p>
 ${activeIncidents.length > 0 ? `<div class="incidents">
-${activeIncidents.map((i) => `<div class="incident-banner ${i.severity}">
-  <div class="incident-title">${esc(i.title)}</div>
-  <div class="incident-meta">
+${activeIncidents.map((i) => `<div class="incident-banner">
+  <div class="incident-header">
     <span class="incident-status ${i.status}">${i.status}</span>
-    <span>${esc(i.service_id)}</span>
-    <span>started <relative-time datetime="${new Date(i.started_at * 1000).toISOString()}">loading</relative-time></span>
+    <span class="incident-title">${esc(i.title)}</span>
+    <span class="incident-time">started <relative-time datetime="${new Date(i.started_at * 1000).toISOString()}">loading</relative-time></span>
   </div>
-  ${i.triage_report ? `<details class="incident-triage"><summary>triage report</summary><pre>${esc(i.triage_report)}</pre></details>` : ""}
   ${i.updates.length > 0 ? `<div class="incident-timeline">
 ${i.updates.map((u) => `<div class="timeline-entry ${u.status}">
   <span class="timeline-time">${new Date(u.created_at * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })}</span>
@@ -191,10 +190,19 @@ ${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online
 </div>` : ""}
 ${resolvedIncidents.length > 0 ? `<div class="resolved-incidents">
 <div class="resolved-header">recent incidents</div>
-${resolvedIncidents.map((i) => `<div class="resolved-item">${esc(i.title)} — resolved <relative-time datetime="${new Date((i.resolved_at ?? i.updated_at) * 1000).toISOString()}">loading</relative-time></div>`).join("\n")}
+${resolvedIncidents.map((i) => `<div class="resolved-item">
+  <div class="resolved-item-header">${esc(i.title)} — resolved <relative-time datetime="${new Date((i.resolved_at ?? i.updated_at) * 1000).toISOString()}">loading</relative-time></div>
+  ${i.updates.length > 0 ? `<div class="incident-timeline">
+${i.updates.map((u) => `<div class="timeline-entry ${u.status}">
+  <span class="timeline-time">${new Date(u.created_at * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })}</span>
+  <span class="timeline-status ${u.status}">${esc(u.status)}</span>
+  <span class="timeline-msg">${esc(u.message)}</span>
+</div>`).join("\n")}
+</div>` : ""}
+</div>`).join("\n")}
 </div>` : ""}
 <footer>
-<div class="footer-meta"><span>${lastCheckISO ? `updated <relative-time datetime="${lastCheckISO}" prefix="">loading</relative-time>` : "no checks yet"}</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></div>
+<div class="footer-meta"><span>${lastCheckISO ? `updated <relative-time id="last-check" datetime="${lastCheckISO}" prefix="">loading</relative-time>` : "no checks yet"}</span><a href="https://github.com/taciturnaxolotl/status/commit/${COMMIT_SHA}">${COMMIT_SHA}</a></div>
 </footer>
 <script>
 class RelativeTimeElement extends HTMLElement {
@@ -264,7 +272,7 @@ function applyUpdate(data) {
   }
 
   if (data.last_check) {
-    const rt = document.querySelector('relative-time');
+    const rt = document.getElementById('last-check');
     if (rt) rt.setAttribute('datetime', new Date(data.last_check * 1000).toISOString());
   }
 }

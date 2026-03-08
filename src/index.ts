@@ -1,7 +1,7 @@
 import type { Env } from "./types";
 import { getManifest } from "./manifest";
 import { checkHealth } from "./health";
-import { insertPing, getLatestPing, pruneOldPings, createIncident, updateIncident, addIncidentUpdate, getActiveIncidentForService, getActiveIncidents, getRecentlyResolvedIncident, setIncidentGitHub } from "./db";
+import { insertPing, getLatestPing, pruneOldPings, createIncident, updateIncident, addIncidentUpdate, getActiveIncidentForService, getActiveIncidents, getRecentlyResolvedIncident, getRecentlyResolvedIncidents, setIncidentGitHub } from "./db";
 import { refreshDevices } from "./tailscale";
 import { handleStatusRoute } from "./routes/status";
 import { handleFavicon } from "./routes/favicon";
@@ -127,7 +127,7 @@ export default {
 											try {
 												const issueNumber = await createIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, {
 													title: `${svc.name} is ${result.status}`,
-													body: `Automated incident detected by [infra.dunkirk.sh](https://infra.dunkirk.sh)\n\n**Service:** ${svc.name}\n**Health URL:** ${svc.health_url}\n**Status:** ${result.status}\n**Detected at:** ${new Date().toISOString()}\n\n---\n*Comments on this issue will appear on the status page. Close the issue to resolve the incident.*`,
+													body: `Automated incident detected by [infra.dunkirk.sh](https://infra.dunkirk.sh)\n\n**Service:** ${svc.name}\n**Health URL:** ${svc.health_url}\n**Status:** ${result.status}${result.status_code ? ` (HTTP ${result.status_code})` : ""}${result.error ? ` — ${result.error}` : ""}\n**Latency:** ${result.latency_ms}ms\n**Detected at:** ${new Date().toISOString()}\n\n---\n*Comments on this issue will appear on the status page. Close the issue to resolve the incident.*`,
 													assignees: env.GITHUB_ASSIGNEE ? [env.GITHUB_ASSIGNEE] : [],
 													labels: ["incident"],
 												});
@@ -188,7 +188,9 @@ export default {
 		// Sync GitHub issue comments/state back to incidents
 		if (env.GITHUB_TOKEN) {
 			const active = await getActiveIncidents(env.DB);
-			await syncGitHubIncidents(env.DB, env.KV, env.GITHUB_TOKEN, active);
+			const recentlyResolved = await getRecentlyResolvedIncidents(env.DB, 86400 * 7);
+			const toSync = [...active, ...recentlyResolved];
+			await syncGitHubIncidents(env.DB, env.KV, env.GITHUB_TOKEN, toSync);
 		}
 	},
 } satisfies ExportedHandler<Env>;

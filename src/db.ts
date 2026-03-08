@@ -324,6 +324,52 @@ export async function getRecentIncidents(db: D1Database, days: number): Promise<
 	return rows.results as unknown as Incident[];
 }
 
+export async function getRecentResolvedIncidentsWithUpdates(db: D1Database, days: number): Promise<IncidentWithUpdates[]> {
+	const since = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+	const rows = await db
+		.prepare(
+			`SELECT i.*, u.id as update_id, u.status as update_status, u.message as update_message, u.created_at as update_created_at
+			FROM incidents i
+			LEFT JOIN incident_updates u ON u.incident_id = i.id
+			WHERE i.status = 'resolved' AND i.resolved_at >= ?
+			ORDER BY i.resolved_at DESC, u.created_at ASC`,
+		)
+		.bind(since)
+		.all();
+
+	const incidentMap = new Map<number, IncidentWithUpdates>();
+	for (const row of rows.results) {
+		const id = row.id as number;
+		if (!incidentMap.has(id)) {
+			incidentMap.set(id, {
+				id,
+				service_id: row.service_id as string,
+				title: row.title as string,
+				status: row.status as string,
+				severity: row.severity as string,
+				triage_report: row.triage_report as string | null,
+				github_repo: row.github_repo as string | null,
+				github_issue_number: row.github_issue_number as number | null,
+				started_at: row.started_at as number,
+				resolved_at: row.resolved_at as number | null,
+				created_at: row.created_at as number,
+				updated_at: row.updated_at as number,
+				updates: [],
+			});
+		}
+		if (row.update_id) {
+			incidentMap.get(id)!.updates.push({
+				id: row.update_id as number,
+				incident_id: id,
+				status: row.update_status as string,
+				message: row.update_message as string,
+				created_at: row.update_created_at as number,
+			});
+		}
+	}
+	return Array.from(incidentMap.values());
+}
+
 export async function getIncident(db: D1Database, id: number): Promise<IncidentWithUpdates | null> {
 	const incident = await db
 		.prepare("SELECT * FROM incidents WHERE id = ?")
@@ -375,4 +421,16 @@ export async function getRecentlyResolvedIncident(
 		.bind(service_id, since)
 		.first();
 	return (row as unknown as Incident) ?? null;
+}
+
+export async function getRecentlyResolvedIncidents(
+	db: D1Database,
+	withinSeconds: number,
+): Promise<Incident[]> {
+	const since = Math.floor(Date.now() / 1000) - withinSeconds;
+	const rows = await db
+		.prepare("SELECT * FROM incidents WHERE status = 'resolved' AND resolved_at >= ? ORDER BY resolved_at DESC")
+		.bind(since)
+		.all();
+	return rows.results as unknown as Incident[];
 }

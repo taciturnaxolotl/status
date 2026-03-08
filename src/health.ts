@@ -4,9 +4,11 @@ const SLOW_THRESHOLD_MS = 3000;
 
 export type Status = "up" | "degraded" | "misconfigured" | "timeout" | "down" | "unknown";
 
-interface HealthResult {
+export interface HealthResult {
 	status: Status;
 	latency_ms: number;
+	status_code?: number;
+	error?: string;
 }
 
 export async function checkHealth(service: Service): Promise<HealthResult> {
@@ -24,24 +26,25 @@ export async function checkHealth(service: Service): Promise<HealthResult> {
 		const latency_ms = Date.now() - start;
 
 		if (res.status >= 400 && res.status < 500) {
-			return { status: "misconfigured", latency_ms };
+			return { status: "misconfigured", latency_ms, status_code: res.status };
 		}
 		if (res.status === 502 || res.status === 504) {
-			return { status: "down", latency_ms };
+			return { status: "down", latency_ms, status_code: res.status };
 		}
 		if (res.status >= 500) {
-			return { status: "degraded", latency_ms };
+			return { status: "degraded", latency_ms, status_code: res.status };
 		}
 		if (res.status >= 200 && res.status < 300) {
 			if (latency_ms > SLOW_THRESHOLD_MS) {
-				return { status: "degraded", latency_ms };
+				return { status: "degraded", latency_ms, status_code: res.status };
 			}
-			return { status: "up", latency_ms };
+			return { status: "up", latency_ms, status_code: res.status };
 		}
-		return { status: "down", latency_ms };
+		return { status: "down", latency_ms, status_code: res.status };
 	} catch (err) {
 		const latency_ms = Date.now() - start;
 		const isTimeout = err instanceof DOMException && err.name === "TimeoutError";
-		return { status: isTimeout ? "timeout" : "down", latency_ms };
+		const error = isTimeout ? "Request timed out after 10s" : err instanceof Error ? err.message : "Unknown error";
+		return { status: isTimeout ? "timeout" : "down", latency_ms, error };
 	}
 }

@@ -81,31 +81,6 @@ export async function closeIssue(
 	}
 }
 
-export async function editIssueBody(
-	token: string,
-	owner: string,
-	repo: string,
-	issueNumber: number,
-	body: string,
-): Promise<void> {
-	const res = await fetch(
-		`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
-		{
-			method: "PATCH",
-			headers: {
-				Authorization: `Bearer ${token}`,
-				Accept: "application/vnd.github+json",
-				"User-Agent": "infra-status-worker",
-			},
-			body: JSON.stringify({ body }),
-		},
-	);
-	if (!res.ok) {
-		const text = await res.text();
-		throw new Error(`GitHub edit issue failed: ${res.status} ${text}`);
-	}
-}
-
 interface GitHubIssue {
 	state: string;
 	body: string | null;
@@ -161,14 +136,29 @@ export async function syncGitHubIncidents(
 			const issue = await fetchIssue(token, parsed.owner, parsed.repo, incident.github_issue_number);
 			if (issue.state === "closed" && incident.status !== "resolved") {
 				const now = Math.floor(Date.now() / 1000);
-				await updateIncident(db, incident.id, { status: "resolved", resolved_at: now });
-				await addIncidentUpdate(db, incident.id, "resolved", "Issue closed on GitHub");
-				continue;
-			}
+				// Fetch latest comments to find the closing message
+				const kvKey = `gh_sync:${incident.id}:last`;
+				const lastSeen = await kv.get(kvKey);
+				const comments = await fetchComments(token, parsed.owner, parsed.repo, incident.github_issue_number, lastSeen ?? undefined);
+				const human = comments.filter((c) => c.user.type !== "Bot" && !c.body.startsWith("Automated incident detected") && !c.body.startsWith("## Triage Report") && !c.body.startsWith("Service recovered automatically"));
 
-			// Sync issue body edits back to triage_report
-			if (issue.body && issue.body !== incident.triage_report) {
-				await updateIncident(db, incident.id, { triage_report: issue.body });
+				// Use the last human comment as the resolve message, or fall back to generic
+				const resolveMsg = human.length > 0 ? human[human.length - 1].body : "Issue closed on GitHub";
+
+				// Add any earlier human comments as investigating updates
+				for (const comment of human.slice(0, -1)) {
+					await addIncidentUpdate(db, incident.id, "investigating", comment.body);
+				}
+
+				await updateIncident(db, incident.id, { status: "resolved", resolved_at: now });
+				await addIncidentUpdate(db, incident.id, "resolved", resolveMsg);
+
+				// Track sync position
+				if (comments.length > 0) {
+					const latest = comments[comments.length - 1].created_at;
+					await kv.put(kvKey, latest, { expirationTtl: 86400 * 7 });
+				}
+				continue;
 			}
 
 			// Sync new comments since last check

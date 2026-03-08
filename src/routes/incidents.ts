@@ -7,7 +7,7 @@ import {
   updateIncident,
   addIncidentUpdate,
 } from "../db";
-import { commentOnIssue, editIssueBody, parseRepo } from "../github";
+import { commentOnIssue, parseRepo } from "../github";
 
 function authCheck(request: Request, env: Env): boolean {
   const auth = request.headers.get("Authorization");
@@ -55,14 +55,15 @@ export async function handleIncidentRoute(
       return Response.json({ error: "unauthorized" }, { status: 401 });
     }
     const id = parseInt(singleMatch[1]);
-    const body = await request.json<{ status?: string; triage_report?: string }>();
+    const body = await request.json<{ status?: string; triage_report?: string; summary?: string }>();
     const updateData: { status?: string; triage_report?: string; resolved_at?: number } = {};
     if (body.status) updateData.status = body.status;
     if (body.triage_report !== undefined) updateData.triage_report = body.triage_report;
     if (body.status === "resolved") updateData.resolved_at = Math.floor(Date.now() / 1000);
     await updateIncident(env.DB, id, updateData);
     if (body.status) {
-      await addIncidentUpdate(env.DB, id, body.status, body.triage_report ?? `Status changed to ${body.status}`);
+      const timelineMsg = body.summary ?? body.triage_report ?? `Status changed to ${body.status}`;
+      await addIncidentUpdate(env.DB, id, body.status, timelineMsg);
     }
 
     // Sync triage report to GitHub issue
@@ -71,9 +72,7 @@ export async function handleIncidentRoute(
       const parsed = parseRepo(`https://github.com/${incident.github_repo}`);
       if (parsed) {
         if (body.triage_report) {
-          // Post triage report as comment and update issue body
           commentOnIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, incident.github_issue_number, `## Triage Report\n\n${body.triage_report}`).catch(() => {});
-          editIssueBody(env.GITHUB_TOKEN, parsed.owner, parsed.repo, incident.github_issue_number, body.triage_report).catch(() => {});
         } else if (body.status) {
           commentOnIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, incident.github_issue_number, `Status changed to **${body.status}**`).catch(() => {});
         }

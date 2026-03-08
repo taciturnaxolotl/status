@@ -36,7 +36,7 @@ export interface Incident {
 	id: number;
 	service_id: string;
 	title: string;
-	status: "investigating" | "identified" | "monitoring" | "resolved";
+	status: "investigating" | "identified" | "resolved";
 	severity: "critical" | "major" | "minor";
 	triage_report: string | null;
 	github_repo: string | null;
