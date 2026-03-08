@@ -1,36 +1,40 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getLatestPing, getUptime7d, getOverallUptimeDays, getLastCheckTime, getActiveIncidentsWithUpdates, getRecentIncidents } from "../db";
+import { getAllLatestPings, getAllUptime7d, getOverallUptimeDays, getLastCheckTime, getActiveIncidentsWithUpdates, getActiveIncidents, getRecentIncidents } from "../db";
 import { getDeviceStatus } from "../tailscale";
 import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";
 
 export async function handleIndex(env: Env): Promise<Response> {
-	const manifest = await getManifest(env);
+	const [manifest, latestPings, uptimes, lastCheck, uptimeDays, activeIncidentsWithUpdates, activeIncidentsList, recentIncidents] = await Promise.all([
+		getManifest(env),
+		getAllLatestPings(env.DB),
+		getAllUptime7d(env.DB),
+		getLastCheckTime(env.DB),
+		getOverallUptimeDays(env.DB, 90),
+		getActiveIncidentsWithUpdates(env.DB),
+		getActiveIncidents(env.DB),
+		getRecentIncidents(env.DB, 7),
+	]);
 
+	const machineOnline = new Map<string, boolean>();
 	const machines = await Promise.all(
 		Object.entries(manifest).map(async ([name, machine]) => {
 			const online = await getDeviceStatus(env, machine.tailscale_host);
-			const services = await Promise.all(
-				machine.services.map(async (svc) => {
-					const ping = await getLatestPing(env.DB, svc.name);
-					const uptime = await getUptime7d(env.DB, svc.name);
-					return {
-						name: svc.name,
-						description: svc.description,
-						url: `https://${svc.domain}`,
-						status: ping?.status ?? "unknown",
-						latency_ms: ping?.latency_ms ?? null,
-						uptime_7d: uptime,
-						has_health: svc.health_url !== null,
-					};
-				}),
-			);
+			machineOnline.set(name, online);
+			const services = machine.services.map((svc) => ({
+				name: svc.name,
+				description: svc.description,
+				url: `https://${svc.domain}`,
+				status: latestPings.get(svc.name)?.status ?? "unknown",
+				latency_ms: latestPings.get(svc.name)?.latency_ms ?? null,
+				uptime_7d: uptimes.get(svc.name) ?? 100,
+				has_health: svc.health_url !== null,
+			}));
 			return { name, type: machine.type, online, services };
 		}),
 	);
 
-	const lastCheck = await getLastCheckTime(env.DB);
 	const lastCheckISO = lastCheck
 		? new Date(lastCheck * 1000).toISOString()
 		: null;
@@ -38,10 +42,10 @@ export async function handleIndex(env: Env): Promise<Response> {
 	const servers = machines.filter((m) => m.type === "server");
 	const clients = machines.filter((m) => m.type === "client");
 
-	const { grade: overallClass, label: overallText } = await getOverallStatus(env);
-	const uptimeDays = await getOverallUptimeDays(env.DB, 90);
-	const activeIncidents = await getActiveIncidentsWithUpdates(env.DB);
-	const recentIncidents = await getRecentIncidents(env.DB, 7);
+	const { grade: overallClass, label: overallText } = await getOverallStatus(env, {
+		manifest, latestPings, activeIncidents: activeIncidentsList, machineOnline,
+	});
+	const activeIncidents = activeIncidentsWithUpdates;
 	const resolvedIncidents = recentIncidents.filter((i) => i.status === "resolved");
 
 	const html = `<!DOCTYPE html>

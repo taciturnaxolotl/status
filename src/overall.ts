@@ -1,6 +1,6 @@
-import type { Env } from "./types";
+import type { Env, Incident, ServicesManifest } from "./types";
 import { getManifest } from "./manifest";
-import { getLatestPing, getActiveIncidents } from "./db";
+import { getAllLatestPings, getActiveIncidents } from "./db";
 import { getDeviceStatus } from "./tailscale";
 
 export type OverallGrade = "up" | "degraded" | "down";
@@ -10,8 +10,19 @@ export interface OverallStatus {
 	label: string;
 }
 
-export async function getOverallStatus(env: Env): Promise<OverallStatus> {
-	const manifest = await getManifest(env);
+export async function getOverallStatus(
+	env: Env,
+	prefetched?: {
+		manifest?: ServicesManifest;
+		latestPings?: Map<string, { status: string; latency_ms: number | null }>;
+		activeIncidents?: Incident[];
+		machineOnline?: Map<string, boolean>;
+	},
+): Promise<OverallStatus> {
+	const manifest = prefetched?.manifest ?? await getManifest(env);
+	const latestPings = prefetched?.latestPings ?? await getAllLatestPings(env.DB);
+	const activeIncidents = prefetched?.activeIncidents ?? await getActiveIncidents(env.DB);
+
 	const servers = Object.entries(manifest).filter(
 		([, m]) => m.type === "server" && m.services.length > 0,
 	);
@@ -19,13 +30,13 @@ export async function getOverallStatus(env: Env): Promise<OverallStatus> {
 	const statuses: string[] = [];
 	let anyServerOffline = false;
 
-	for (const [, machine] of servers) {
-		const online = await getDeviceStatus(env, machine.tailscale_host);
+	for (const [name, machine] of servers) {
+		const online = prefetched?.machineOnline?.get(name) ?? await getDeviceStatus(env, machine.tailscale_host);
 		if (!online) anyServerOffline = true;
 
 		for (const svc of machine.services.filter((s) => s.health_url)) {
-			const ping = await getLatestPing(env.DB, svc.name);
-			statuses.push((ping?.status as string) ?? "unknown");
+			const ping = latestPings.get(svc.name);
+			statuses.push(ping?.status ?? "unknown");
 		}
 	}
 
@@ -42,7 +53,6 @@ export async function getOverallStatus(env: Env): Promise<OverallStatus> {
 			s === "misconfigured",
 	);
 
-	const activeIncidents = await getActiveIncidents(env.DB);
 	const hasCritical = activeIncidents.some((i) => i.severity === "critical");
 	const hasMajor = activeIncidents.some((i) => i.severity === "major");
 

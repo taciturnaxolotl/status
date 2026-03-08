@@ -31,21 +31,62 @@ export async function getUptime7d(
 	service_id: string,
 ): Promise<number> {
 	const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
-	const total = await db
+	const row = await db
 		.prepare(
-			"SELECT COUNT(*) as count FROM pings WHERE service_id = ? AND timestamp >= ?",
+			"SELECT COUNT(*) as total, SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count FROM pings WHERE service_id = ? AND timestamp >= ?",
 		)
 		.bind(service_id, since)
-		.first<{ count: number }>();
-	const up = await db
-		.prepare(
-			"SELECT COUNT(*) as count FROM pings WHERE service_id = ? AND timestamp >= ? AND status = 'up'",
-		)
-		.bind(service_id, since)
-		.first<{ count: number }>();
+		.first<{ total: number; up_count: number }>();
 
-	if (!total || total.count === 0) return 100;
-	return Math.round(((up?.count ?? 0) / total.count) * 10000) / 100;
+	if (!row || row.total === 0) return 100;
+	return Math.round((row.up_count / row.total) * 10000) / 100;
+}
+
+export async function getAllLatestPings(
+	db: D1Database,
+): Promise<Map<string, { status: string; latency_ms: number | null }>> {
+	const rows = await db
+		.prepare(
+			`SELECT p.service_id, p.status, p.latency_ms
+			FROM pings p
+			INNER JOIN (SELECT service_id, MAX(timestamp) as max_ts FROM pings GROUP BY service_id) latest
+			ON p.service_id = latest.service_id AND p.timestamp = latest.max_ts`,
+		)
+		.all();
+
+	const map = new Map<string, { status: string; latency_ms: number | null }>();
+	for (const row of rows.results) {
+		map.set(row.service_id as string, {
+			status: row.status as string,
+			latency_ms: row.latency_ms as number | null,
+		});
+	}
+	return map;
+}
+
+export async function getAllUptime7d(
+	db: D1Database,
+): Promise<Map<string, number>> {
+	const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+	const rows = await db
+		.prepare(
+			`SELECT service_id, COUNT(*) as total, SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count
+			FROM pings WHERE timestamp >= ?
+			GROUP BY service_id`,
+		)
+		.bind(since)
+		.all();
+
+	const map = new Map<string, number>();
+	for (const row of rows.results) {
+		const total = row.total as number;
+		const up = row.up_count as number;
+		map.set(
+			row.service_id as string,
+			total === 0 ? 100 : Math.round((up / total) * 10000) / 100,
+		);
+	}
+	return map;
 }
 
 export async function getUptimeBuckets(
@@ -220,16 +261,47 @@ export async function getActiveIncidents(db: D1Database): Promise<Incident[]> {
 }
 
 export async function getActiveIncidentsWithUpdates(db: D1Database): Promise<IncidentWithUpdates[]> {
-	const incidents = await getActiveIncidents(db);
-	return Promise.all(
-		incidents.map(async (incident) => {
-			const updates = await db
-				.prepare("SELECT * FROM incident_updates WHERE incident_id = ? ORDER BY created_at ASC")
-				.bind(incident.id)
-				.all();
-			return { ...incident, updates: updates.results as unknown as IncidentUpdate[] };
-		}),
-	);
+	const rows = await db
+		.prepare(
+			`SELECT i.*, u.id as update_id, u.status as update_status, u.message as update_message, u.created_at as update_created_at
+			FROM incidents i
+			LEFT JOIN incident_updates u ON u.incident_id = i.id
+			WHERE i.status != 'resolved'
+			ORDER BY i.created_at DESC, u.created_at ASC`,
+		)
+		.all();
+
+	const incidentMap = new Map<number, IncidentWithUpdates>();
+	for (const row of rows.results) {
+		const id = row.id as number;
+		if (!incidentMap.has(id)) {
+			incidentMap.set(id, {
+				id,
+				service_id: row.service_id as string,
+				title: row.title as string,
+				status: row.status as string,
+				severity: row.severity as string,
+				triage_report: row.triage_report as string | null,
+				github_repo: row.github_repo as string | null,
+				github_issue_number: row.github_issue_number as number | null,
+				started_at: row.started_at as number,
+				resolved_at: row.resolved_at as number | null,
+				created_at: row.created_at as number,
+				updated_at: row.updated_at as number,
+				updates: [],
+			});
+		}
+		if (row.update_id) {
+			incidentMap.get(id)!.updates.push({
+				id: row.update_id as number,
+				incident_id: id,
+				status: row.update_status as string,
+				message: row.update_message as string,
+				created_at: row.update_created_at as number,
+			});
+		}
+	}
+	return Array.from(incidentMap.values());
 }
 
 export async function getActiveIncidentForService(

@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getLatestPing, getUptime7d, getLastCheckTime } from "../db";
+import { getLatestPing, getUptime7d, getAllLatestPings, getAllUptime7d, getLastCheckTime } from "../db";
 import { getDeviceStatus } from "../tailscale";
 import { getOverallStatus } from "../overall";
 
@@ -16,17 +16,20 @@ function worstStatus(statuses: string[]): string {
 
 // GET /api/status/overall
 async function overallStatus(env: Env): Promise<Response> {
-	const manifest = await getManifest(env);
+	const [manifest, uptimes, latestPings] = await Promise.all([
+		getManifest(env),
+		getAllUptime7d(env.DB),
+		getAllLatestPings(env.DB),
+	]);
 	const allServices = Object.values(manifest).flatMap((m) => m.services);
 	const monitored = allServices.filter((s) => s.health_url !== null);
 
 	let totalUptime = 0;
 	for (const svc of monitored) {
-		const uptime = await getUptime7d(env.DB, svc.name);
-		totalUptime += uptime;
+		totalUptime += uptimes.get(svc.name) ?? 100;
 	}
 
-	const { grade } = await getOverallStatus(env);
+	const { grade } = await getOverallStatus(env, { manifest, latestPings });
 	const avgUptime =
 		monitored.length > 0
 			? Math.round((totalUptime / monitored.length) * 100) / 100
@@ -45,23 +48,25 @@ async function overallStatus(env: Env): Promise<Response> {
 
 // GET /api/status
 async function fullStatus(env: Env): Promise<Response> {
-	const manifest = await getManifest(env);
+	const [manifest, latestPings, uptimes, lastCheck] = await Promise.all([
+		getManifest(env),
+		getAllLatestPings(env.DB),
+		getAllUptime7d(env.DB),
+		getLastCheckTime(env.DB),
+	]);
 
 	const machines = await Promise.all(
 		Object.entries(manifest).map(async ([name, machine]) => {
 			const online = await getDeviceStatus(env, machine.tailscale_host);
-			const services = await Promise.all(
-				machine.services.map(async (svc) => {
-					const ping = await getLatestPing(env.DB, svc.name);
-					const uptime = await getUptime7d(env.DB, svc.name);
-					return {
-						id: svc.name,
-						status: (ping?.status ?? "unknown") as string,
-						latency_ms: ping?.latency_ms ?? null,
-						uptime_7d: uptime,
-					};
-				}),
-			);
+			const services = machine.services.map((svc) => {
+				const ping = latestPings.get(svc.name);
+				return {
+					id: svc.name,
+					status: (ping?.status ?? "unknown") as string,
+					latency_ms: ping?.latency_ms ?? null,
+					uptime_7d: uptimes.get(svc.name) ?? 100,
+				};
+			});
 			const svcStatuses = services.map((s) => s.status);
 			return {
 				name,
@@ -76,8 +81,7 @@ async function fullStatus(env: Env): Promise<Response> {
 		}),
 	);
 
-	const { grade } = await getOverallStatus(env);
-	const lastCheck = await getLastCheckTime(env.DB);
+	const { grade } = await getOverallStatus(env, { manifest, latestPings });
 
 	return Response.json(
 		{
