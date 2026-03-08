@@ -26,6 +26,9 @@ export async function checkHealth(service: Service): Promise<HealthResult> {
 		if (res.status >= 400 && res.status < 500) {
 			return { status: "misconfigured", latency_ms };
 		}
+		if (res.status === 502 || res.status === 504) {
+			return { status: "down", latency_ms };
+		}
 		if (res.status >= 500) {
 			return { status: "degraded", latency_ms };
 		}
