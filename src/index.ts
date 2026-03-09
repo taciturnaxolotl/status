@@ -157,8 +157,11 @@ export default {
 							}
 						}
 					} else {
-						// Service is up — clear failure counter
-						await env.KV.delete(`triage:${svc.name}:failures`);
+						// Service is up — clear failure counter (only if one exists, to avoid unnecessary KV delete ops)
+						const failKey = `triage:${svc.name}:failures`;
+						if (await env.KV.get(failKey)) {
+							await env.KV.delete(failKey);
+						}
 
 						// Auto-resolve active incidents
 						const active = await getActiveIncidentForService(env.DB, svc.name);
