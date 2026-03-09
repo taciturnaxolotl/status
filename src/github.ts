@@ -153,9 +153,9 @@ export async function syncGitHubIncidents(
 				await updateIncident(db, incident.id, { status: "resolved", resolved_at: now });
 				await addIncidentUpdate(db, incident.id, "resolved", resolveMsg);
 
-				// Track sync position
+				// Track sync position (bump by 1s since GitHub's `since` is inclusive)
 				if (comments.length > 0) {
-					const latest = comments[comments.length - 1].created_at;
+					const latest = new Date(new Date(comments[comments.length - 1].created_at).getTime() + 1000).toISOString();
 					await kv.put(kvKey, latest, { expirationTtl: 86400 * 7 });
 				}
 				continue;
@@ -173,9 +173,9 @@ export async function syncGitHubIncidents(
 				await addIncidentUpdate(db, incident.id, incident.status, comment.body);
 			}
 
-			// Track last comment time so we don't re-import
+			// Track last comment time so we don't re-import (bump by 1s since GitHub's `since` is inclusive)
 			if (comments.length > 0) {
-				const latest = comments[comments.length - 1].created_at;
+				const latest = new Date(new Date(comments[comments.length - 1].created_at).getTime() + 1000).toISOString();
 				await kv.put(kvKey, latest, { expirationTtl: 86400 * 7 });
 			}
 		} catch (_) {} // best effort, don't block other syncs
