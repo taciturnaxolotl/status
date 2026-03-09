@@ -4,7 +4,7 @@ export interface Service {
 	domain: string;
 	health_url: string | null;
 	port: number;
-	repository: string;
+	repository: string | null;
 	runtime: string;
 	data: {
 		files: string[];
