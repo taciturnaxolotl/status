@@ -51,6 +51,11 @@ export async function handleIndex(env: Env): Promise<Response> {
 	});
 	const activeIncidents = activeIncidentsWithUpdates;
 
+	const firstDataIdx = uptimeDays.findIndex((d) => d.status !== "none");
+	const relevantDays = firstDataIdx >= 0 ? uptimeDays.slice(firstDataIdx) : [];
+	const downDays = relevantDays.filter((d) => d.status === "down").length;
+	const uptime90d = relevantDays.length > 0 ? Math.round(((relevantDays.length - downDays) / relevantDays.length) * 10000) / 100 : 100;
+
 	const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -75,6 +80,7 @@ export async function handleIndex(env: Env): Promise<Response> {
   body { font-family: -apple-system, system-ui, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; max-width: 640px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
   h1 { font-size: 1.1rem; font-weight: 500; margin-bottom: 0.25rem; }
   .overall { font-size: 0.85rem; color: #8b949e; margin-bottom: 2rem; }
+  .uptime-pct { color: #8b949e; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
   .dot.up { background: #2ecc71; }
   .dot.degraded { background: #f39c12; }
@@ -149,7 +155,7 @@ export async function handleIndex(env: Env): Promise<Response> {
 <body>
 <div class="uptime-bar">${uptimeDays.map((d) => `<div class="day ${d.status}" title="${d.date}: ${d.status}"></div>`).join("")}</div>
 <h1>infra.dunkirk.sh</h1>
-<p class="overall"><span class="dot ${overallClass}" id="overall-dot" title="${overallClass}"></span><span id="overall-text">${overallText}</span></p>
+<p class="overall"><span class="dot ${overallClass}" id="overall-dot" title="${overallClass}"></span><span id="overall-text">${overallText}</span><span class="uptime-pct" id="overall-uptime"> at ${uptime90d}%</span></p>
 ${activeIncidents.length > 0 ? `<div class="incidents">
 ${activeIncidents.map((i) => `<div class="incident-banner">
   <div class="incident-header">
