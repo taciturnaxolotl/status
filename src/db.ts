@@ -130,21 +130,40 @@ export async function getUptimeBuckets(
 export async function getOverallUptimeDays(
 	db: D1Database,
 	days: number,
+	serviceIds?: string[],
 ): Promise<{ date: string; status: "up" | "degraded" | "down" | "none" }[]> {
 	const since = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
-	const rows = await db
-		.prepare(
-			`SELECT
-				(timestamp / 86400) AS day_bucket,
-				status,
-				COUNT(*) AS cnt
-			FROM pings
-			WHERE timestamp >= ?
-			GROUP BY day_bucket, status
-			ORDER BY day_bucket ASC`,
-		)
-		.bind(since)
-		.all();
+	let rows;
+	if (serviceIds && serviceIds.length > 0) {
+		const placeholders = serviceIds.map(() => "?").join(", ");
+		rows = await db
+			.prepare(
+				`SELECT
+					(timestamp / 86400) AS day_bucket,
+					status,
+					COUNT(*) AS cnt
+				FROM pings
+				WHERE timestamp >= ? AND service_id IN (${placeholders})
+				GROUP BY day_bucket, status
+				ORDER BY day_bucket ASC`,
+			)
+			.bind(since, ...serviceIds)
+			.all();
+	} else {
+		rows = await db
+			.prepare(
+				`SELECT
+					(timestamp / 86400) AS day_bucket,
+					status,
+					COUNT(*) AS cnt
+				FROM pings
+				WHERE timestamp >= ?
+				GROUP BY day_bucket, status
+				ORDER BY day_bucket ASC`,
+			)
+			.bind(since)
+			.all();
+	}
 
 	const bucketMap = new Map<number, Map<string, number>>();
 	for (const row of rows.results) {

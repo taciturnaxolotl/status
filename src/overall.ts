@@ -24,7 +24,7 @@ export async function getOverallStatus(
 	const activeIncidents = prefetched?.activeIncidents ?? await getActiveIncidents(env.DB);
 
 	const servers = Object.entries(manifest).filter(
-		([, m]) => m.type === "server" && m.services.length > 0,
+		([, m]) => m.type === "server" && m.services.some((s) => s.health_url),
 	);
 
 	const statuses: string[] = [];

@@ -6,12 +6,16 @@ import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";
 
 export async function handleIndex(env: Env): Promise<Response> {
-	const [manifest, latestPings, uptimes, lastCheck, uptimeDays, activeIncidentsWithUpdates, activeIncidentsList, resolvedIncidents] = await Promise.all([
-		getManifest(env),
+	const manifest = await getManifest(env);
+	const serverServiceIds = Object.values(manifest)
+		.filter((m) => m.type === "server" && m.services.some((s) => s.health_url))
+		.flatMap((m) => m.services.filter((s) => s.health_url).map((s) => s.name));
+
+	const [latestPings, uptimes, lastCheck, uptimeDays, activeIncidentsWithUpdates, activeIncidentsList, resolvedIncidents] = await Promise.all([
 		getAllLatestPings(env.DB),
 		getAllUptime7d(env.DB),
 		getLastCheckTime(env.DB),
-		getOverallUptimeDays(env.DB, 90),
+		getOverallUptimeDays(env.DB, 90, serverServiceIds),
 		getActiveIncidentsWithUpdates(env.DB),
 		getActiveIncidents(env.DB),
 		getRecentResolvedIncidentsWithUpdates(env.DB, 7),
