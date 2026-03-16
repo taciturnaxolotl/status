@@ -39,7 +39,7 @@ async function overallStatus(env: Env): Promise<Response> {
 		{
 			ok: grade === "up",
 			status: grade,
-			uptime_7d: avgUptime,
+			uptime_90d: avgUptime,
 			services_total: allServices.length,
 			services_monitored: monitored.length,
 			machines_total: Object.keys(manifest).length,
@@ -64,7 +64,7 @@ async function fullStatus(env: Env): Promise<Response> {
 					id: svc.name,
 					status: (ping?.status ?? "unknown") as string,
 					latency_ms: ping?.latency_ms ?? null,
-					uptime_7d: uptimes.get(svc.name) ?? 100,
+					uptime_90d: uptimes.get(svc.name) ?? 100,
 				};
 			});
 			const svcStatuses = services.map((s) => s.status);
@@ -106,7 +106,7 @@ async function serviceStatus(env: Env, id: string): Promise<Response> {
 			id,
 			status: ping.status,
 			latency_ms: ping.latency_ms,
-			uptime_7d: uptime,
+			uptime_90d: uptime,
 		}	);
 }
 
@@ -128,7 +128,7 @@ async function machineStatus(env: Env, name: string): Promise<Response> {
 				id: svc.name,
 				status: (ping?.status ?? "unknown") as string,
 				latency_ms: ping?.latency_ms ?? null,
-				uptime_7d: uptime,
+				uptime_90d: uptime,
 			};
 		}),
 	);

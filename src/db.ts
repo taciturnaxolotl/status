@@ -29,8 +29,9 @@ export async function getLatestPing(
 export async function getUptime7d(
 	db: D1Database,
 	service_id: string,
+	days = 90,
 ): Promise<number> {
-	const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+	const since = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
 	const row = await db
 		.prepare(
 			"SELECT COUNT(*) as total, SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count FROM pings WHERE service_id = ? AND timestamp >= ?",
@@ -66,8 +67,9 @@ export async function getAllLatestPings(
 
 export async function getAllUptime7d(
 	db: D1Database,
+	days = 90,
 ): Promise<Map<string, number>> {
-	const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+	const since = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
 	const rows = await db
 		.prepare(
 			`SELECT service_id, COUNT(*) as total, SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count

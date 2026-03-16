@@ -6,13 +6,85 @@ The canonical repo for this is hosted on tangled over at [`dunkirk.sh/status`](h
 
 ## API
 
+### `GET /api/status`
+Overall summary with all machines and services.
+```json
+{
+  "ok": true,
+  "status": "up",
+  "last_check": 1741900245,
+  "machines": [{
+    "name": "orion",
+    "hostname": "orion",
+    "type": "server",
+    "online": true,
+    "status": "up",
+    "services": [{
+      "id": "l4",
+      "status": "up",
+      "latency_ms": 42,
+      "uptime_90d": 99.84
+    }]
+  }]
+}
 ```
-/api/status                    # overall summary (ok, status, uptime, counts)
-/api/status/overall            # same as above
-/api/status/service/:id        # single service status + latency + uptime
-/api/status/machine/:name      # machine online status + all its services
-/api/uptime/:service_id        # hourly uptime buckets for a service
+
+### `GET /api/status/overall`
+Lightweight overall summary.
+```json
+{
+  "ok": true,
+  "status": "up",
+  "uptime_90d": 99.84,
+  "services_total": 20,
+  "services_monitored": 16,
+  "machines_total": 4
+}
 ```
+
+### `GET /api/status/service/:id`
+Single service status.
+```json
+{
+  "id": "l4",
+  "status": "up",
+  "latency_ms": 42,
+  "uptime_90d": 99.84
+}
+```
+
+### `GET /api/status/machine/:name`
+Machine and all its services.
+```json
+{
+  "name": "orion",
+  "hostname": "orion",
+  "type": "server",
+  "online": true,
+  "status": "up",
+  "services": [{
+    "id": "l4",
+    "status": "up",
+    "latency_ms": 42,
+    "uptime_90d": 99.84
+  }]
+}
+```
+
+### `GET /api/uptime/:service_id`
+Hourly uptime buckets for a service. Optional `?window=<days>` param (default: 90).
+```json
+{
+  "service_id": "l4",
+  "window_hours": 2160,
+  "buckets": [{
+    "timestamp": 1741896000,
+    "status": "up"
+  }]
+}
+```
+
+**Status values:** `up` · `degraded` · `down` · `partial` · `timeout` · `misconfigured` · `unknown`
 
 ## Badges
 

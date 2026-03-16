@@ -33,7 +33,7 @@ export async function handleIndex(env: Env): Promise<Response> {
 				url: `https://${svc.domain}`,
 				status: latestPings.get(svc.name)?.status ?? "unknown",
 				latency_ms: latestPings.get(svc.name)?.latency_ms ?? null,
-				uptime_7d: uptimes.get(svc.name) ?? 100,
+				uptime_90d: uptimes.get(svc.name) ?? 100,
 				has_health: svc.health_url !== null,
 			}));
 			return { name, type: machine.type, online, services };
@@ -180,7 +180,7 @@ ${m.services.length === 0 ? `<div class="no-services">no services</div>` : m.ser
     <span class="svc-name"><a href="${esc(s.url)}">${esc(s.name)}</a></span>
   </div>
   <div class="svc-right">
-    ${s.has_health ? `<span class="uptime" data-service-uptime="${esc(s.name)}">${s.uptime_7d}%</span><span class="latency" data-service-latency="${esc(s.name)}">${s.latency_ms !== null ? s.latency_ms + "ms" : "—"}</span>` : `<span class="latency">no health check</span>`}
+    ${s.has_health ? `<span class="uptime" data-service-uptime="${esc(s.name)}">${s.uptime_90d}%</span><span class="latency" data-service-latency="${esc(s.name)}">${s.latency_ms !== null ? s.latency_ms + "ms" : "—"}</span>` : `<span class="latency">no health check</span>`}
   </div>
 </div>`,
 	)
@@ -271,7 +271,7 @@ function applyUpdate(data) {
       const sDot = document.querySelector('[data-service="' + svc.id + '"]');
       if (sDot) setDot(sDot, svc.status);
       const uEl = document.querySelector('[data-service-uptime="' + svc.id + '"]');
-      if (uEl) uEl.textContent = svc.uptime_7d + '%';
+      if (uEl) uEl.textContent = svc.uptime_90d + '%';
       const lEl = document.querySelector('[data-service-latency="' + svc.id + '"]');
       if (lEl) lEl.textContent = svc.latency_ms !== null ? svc.latency_ms + 'ms' : '—';
     }
