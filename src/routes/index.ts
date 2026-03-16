@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getAllLatestPings, getAllUptime7d, getOverallUptimeDays, getLastCheckTime, getActiveIncidentsWithUpdates, getActiveIncidents, getRecentResolvedIncidentsWithUpdates } from "../db";
+import { getAllLatestPings, getAllUptime7d, getOverallUptimeDays, getOverallUptimePct, getLastCheckTime, getActiveIncidentsWithUpdates, getActiveIncidents, getRecentResolvedIncidentsWithUpdates } from "../db";
 import { getDeviceStatus } from "../tailscale";
 import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";
@@ -11,11 +11,12 @@ export async function handleIndex(env: Env): Promise<Response> {
 		.filter((m) => m.type === "server" && m.services.some((s) => s.health_url))
 		.flatMap((m) => m.services.filter((s) => s.health_url).map((s) => s.name));
 
-	const [latestPings, uptimes, lastCheck, uptimeDays, activeIncidentsWithUpdates, activeIncidentsList, resolvedIncidents] = await Promise.all([
+	const [latestPings, uptimes, lastCheck, uptimeDays, uptime90d, activeIncidentsWithUpdates, activeIncidentsList, resolvedIncidents] = await Promise.all([
 		getAllLatestPings(env.DB),
 		getAllUptime7d(env.DB),
 		getLastCheckTime(env.DB),
 		getOverallUptimeDays(env.DB, 90, serverServiceIds),
+		getOverallUptimePct(env.DB, 90, serverServiceIds),
 		getActiveIncidentsWithUpdates(env.DB),
 		getActiveIncidents(env.DB),
 		getRecentResolvedIncidentsWithUpdates(env.DB, 7),
@@ -50,11 +51,6 @@ export async function handleIndex(env: Env): Promise<Response> {
 		manifest, latestPings, activeIncidents: activeIncidentsList, machineOnline,
 	});
 	const activeIncidents = activeIncidentsWithUpdates;
-
-	const firstDataIdx = uptimeDays.findIndex((d) => d.status !== "none");
-	const relevantDays = firstDataIdx >= 0 ? uptimeDays.slice(firstDataIdx) : [];
-	const downDays = relevantDays.filter((d) => d.status === "down").length;
-	const uptime90d = relevantDays.length > 0 ? Math.round(((relevantDays.length - downDays) / relevantDays.length) * 10000) / 100 : 100;
 
 	const html = `<!DOCTYPE html>
 <html lang="en">

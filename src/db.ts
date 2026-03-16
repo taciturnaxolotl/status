@@ -140,11 +140,13 @@ export async function getOverallUptimeDays(
 			.prepare(
 				`SELECT
 					(timestamp / 86400) AS day_bucket,
-					status,
-					COUNT(*) AS cnt
+					service_id,
+					SUM(CASE WHEN status IN ('down','timeout') THEN 1 ELSE 0 END) AS bad_count,
+					SUM(CASE WHEN status IN ('degraded','misconfigured') THEN 1 ELSE 0 END) AS degraded_count,
+					COUNT(*) AS total
 				FROM pings
 				WHERE timestamp >= ? AND service_id IN (${placeholders})
-				GROUP BY day_bucket, status
+				GROUP BY day_bucket, service_id
 				ORDER BY day_bucket ASC`,
 			)
 			.bind(since, ...serviceIds)
@@ -154,22 +156,33 @@ export async function getOverallUptimeDays(
 			.prepare(
 				`SELECT
 					(timestamp / 86400) AS day_bucket,
-					status,
-					COUNT(*) AS cnt
+					service_id,
+					SUM(CASE WHEN status IN ('down','timeout') THEN 1 ELSE 0 END) AS bad_count,
+					SUM(CASE WHEN status IN ('degraded','misconfigured') THEN 1 ELSE 0 END) AS degraded_count,
+					COUNT(*) AS total
 				FROM pings
 				WHERE timestamp >= ?
-				GROUP BY day_bucket, status
+				GROUP BY day_bucket, service_id
 				ORDER BY day_bucket ASC`,
 			)
 			.bind(since)
 			.all();
 	}
 
-	const bucketMap = new Map<number, Map<string, number>>();
+	// bucketMap: day_bucket -> { totalPings, totalBad, anyServiceReallyBad, anyServiceReallyDegraded }
+	const bucketMap = new Map<number, { total: number; bad: number; reallyBad: boolean; reallyDegraded: boolean }>();
 	for (const row of rows.results) {
 		const b = row.day_bucket as number;
-		if (!bucketMap.has(b)) bucketMap.set(b, new Map());
-		bucketMap.get(b)!.set(row.status as string, row.cnt as number);
+		if (!bucketMap.has(b)) bucketMap.set(b, { total: 0, bad: 0, reallyBad: false, reallyDegraded: false });
+		const bucket = bucketMap.get(b)!;
+		const badCount = row.bad_count as number;
+		const degradedCount = row.degraded_count as number;
+		bucket.total += row.total as number;
+		bucket.bad += badCount;
+		// A service counts as "really" bad/degraded only if it failed ≥2 checks,
+		// matching the 2-consecutive-failures threshold used by the incident system.
+		if (badCount >= 2) bucket.reallyBad = true;
+		if (degradedCount >= 2) bucket.reallyDegraded = true;
 	}
 
 	const now = Math.floor(Date.now() / 1000);
@@ -187,14 +200,51 @@ export async function getOverallUptimeDays(
 			continue;
 		}
 
+		const badRatio = counts.total > 0 ? counts.bad / counts.total : 0;
+
 		let status: "up" | "degraded" | "down" = "up";
-		if (counts.has("down") || counts.has("timeout")) status = "down";
-		else if (counts.has("degraded") || counts.has("misconfigured")) status = "degraded";
+		if (badRatio > 0.05) status = "down";
+		else if (counts.reallyBad || counts.reallyDegraded) status = "degraded";
 
 		result.push({ date, status });
 	}
 
 	return result;
+}
+
+export async function getOverallUptimePct(
+	db: D1Database,
+	days: number,
+	serviceIds?: string[],
+): Promise<number> {
+	const since = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+	let row: { up_count: number; total: number } | null;
+	if (serviceIds && serviceIds.length > 0) {
+		const placeholders = serviceIds.map(() => "?").join(", ");
+		row = await db
+			.prepare(
+				`SELECT
+					SUM(CASE WHEN status NOT IN ('down','timeout') THEN 1 ELSE 0 END) AS up_count,
+					COUNT(*) AS total
+				FROM pings
+				WHERE timestamp >= ? AND service_id IN (${placeholders})`,
+			)
+			.bind(since, ...serviceIds)
+			.first<{ up_count: number; total: number }>();
+	} else {
+		row = await db
+			.prepare(
+				`SELECT
+					SUM(CASE WHEN status NOT IN ('down','timeout') THEN 1 ELSE 0 END) AS up_count,
+					COUNT(*) AS total
+				FROM pings
+				WHERE timestamp >= ?`,
+			)
+			.bind(since)
+			.first<{ up_count: number; total: number }>();
+	}
+	if (!row || row.total === 0) return 100;
+	return Math.round((row.up_count / row.total) * 10000) / 100;
 }
 
 export async function getLastCheckTime(
