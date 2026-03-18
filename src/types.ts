@@ -65,5 +65,6 @@ export interface Env {
 	TAILSCALE_API_KEY?: string;
 	TRIAGE_AUTH_TOKEN?: string;
 	GITHUB_TOKEN?: string;
+	GITHUB_ASSIGN_TOKEN?: string;
 	GITHUB_ASSIGNEE?: string;
 }

@@ -9,7 +9,7 @@ import { handleUptime } from "./routes/uptime";
 import { handleBadgeRoute } from "./routes/badge";
 import { handleIndex } from "./routes/index";
 import { handleIncidentRoute } from "./routes/incidents";
-import { createIssue, commentOnIssue, closeIssue, parseRepo, syncGitHubIncidents } from "./github";
+import { createIssue, assignIssue, commentOnIssue, closeIssue, parseRepo, syncGitHubIncidents } from "./github";
 import { schemas } from "./schemas";
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -128,9 +128,11 @@ export default {
 												const issueNumber = await createIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, {
 													title: `${svc.name} is ${result.status}`,
 													body: `Automated incident detected by [infra.dunkirk.sh](https://infra.dunkirk.sh)\n\n**Service:** ${svc.name}\n**Health URL:** ${svc.health_url}\n**Status:** ${result.status}${result.status_code ? ` (HTTP ${result.status_code})` : ""}${result.error ? ` — ${result.error}` : ""}\n**Latency:** ${result.latency_ms}ms\n**Detected at:** ${new Date().toISOString()}\n\n---\n*Comments on this issue will appear on the status page. Close the issue to resolve the incident.*`,
-													assignees: env.GITHUB_ASSIGNEE ? [env.GITHUB_ASSIGNEE] : [],
 													labels: ["incident"],
 												});
+												if (env.GITHUB_ASSIGN_TOKEN && env.GITHUB_ASSIGNEE) {
+													await assignIssue(env.GITHUB_ASSIGN_TOKEN, parsed.owner, parsed.repo, issueNumber, [env.GITHUB_ASSIGNEE]);
+												}
 												await setIncidentGitHub(env.DB, id, `${parsed.owner}/${parsed.repo}`, issueNumber);
 											} catch (_) {} // best effort
 										}

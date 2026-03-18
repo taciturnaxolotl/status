@@ -13,7 +13,7 @@ export async function createIssue(
 	token: string,
 	owner: string,
 	repo: string,
-	opts: { title: string; body: string; assignees?: string[]; labels?: string[] },
+	opts: { title: string; body: string; labels?: string[] },
 ): Promise<number> {
 	const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
 		method: "POST",
@@ -30,6 +30,31 @@ export async function createIssue(
 	}
 	const data = await res.json<{ number: number }>();
 	return data.number;
+}
+
+export async function assignIssue(
+	token: string,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	assignees: string[],
+): Promise<void> {
+	const res = await fetch(
+		`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}/assignees`,
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${token}`,
+				Accept: "application/vnd.github+json",
+				"User-Agent": "infra-status-worker",
+			},
+			body: JSON.stringify({ assignees }),
+		},
+	);
+	if (!res.ok) {
+		const text = await res.text();
+		throw new Error(`GitHub assign issue failed: ${res.status} ${text}`);
+	}
 }
 
 export async function commentOnIssue(
