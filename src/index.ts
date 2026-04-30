@@ -89,7 +89,6 @@ export default {
 		]);
 
 		const checks = Object.values(manifest).flatMap((machine) => {
-			const triageUrl = machine.triage_url;
 			return machine.services
 				.filter((svc) => svc.health_url)
 				.map(async (svc) => {
@@ -102,7 +101,7 @@ export default {
 
 					if (isDown) {
 						// Track consecutive failures in KV for flap prevention
-						const failKey = `triage:${svc.name}:failures`;
+						const failKey = `incident:${svc.name}:failures`;
 						const current = parseInt((await env.KV.get(failKey)) ?? "0");
 						const failures = current + 1;
 						await env.KV.put(failKey, String(failures), { expirationTtl: 1800 });
@@ -137,30 +136,12 @@ export default {
 											} catch (_) {} // best effort
 										}
 									}
-
-									// Fire webhook to triage agent (non-blocking)
-									if (triageUrl && env.TRIAGE_AUTH_TOKEN) {
-										fetch(triageUrl, {
-											method: "POST",
-											headers: {
-												"Content-Type": "application/json",
-												Authorization: `Bearer ${env.TRIAGE_AUTH_TOKEN}`,
-											},
-											body: JSON.stringify({
-												incident_id: id,
-												service_id: svc.name,
-												service_name: svc.name,
-												health_url: svc.health_url,
-												callback_url: `https://infra.dunkirk.sh/api/incidents/${id}`,
-											}),
-										}).catch(() => {}); // fire and forget
-									}
 								}
 							}
 						}
 					} else {
 						// Service is up — clear failure counter (only if one exists, to avoid unnecessary KV delete ops)
-						const failKey = `triage:${svc.name}:failures`;
+						const failKey = `incident:${svc.name}:failures`;
 						if (await env.KV.get(failKey)) {
 							await env.KV.delete(failKey);
 						}

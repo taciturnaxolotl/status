@@ -295,12 +295,11 @@ export async function createIncident(
 export async function updateIncident(
 	db: D1Database,
 	id: number,
-	data: { status?: string; triage_report?: string; resolved_at?: number },
+	data: { status?: string; resolved_at?: number },
 ): Promise<void> {
 	const sets: string[] = [];
 	const values: unknown[] = [];
 	if (data.status) { sets.push("status = ?"); values.push(data.status); }
-	if (data.triage_report !== undefined) { sets.push("triage_report = ?"); values.push(data.triage_report); }
 	if (data.resolved_at) { sets.push("resolved_at = ?"); values.push(data.resolved_at); }
 	sets.push("updated_at = ?");
 	values.push(Math.floor(Date.now() / 1000));
@@ -352,7 +351,6 @@ export async function getActiveIncidentsWithUpdates(db: D1Database): Promise<Inc
 				title: row.title as string,
 				status: row.status as string,
 				severity: row.severity as string,
-				triage_report: row.triage_report as string | null,
 				github_repo: row.github_repo as string | null,
 				github_issue_number: row.github_issue_number as number | null,
 				started_at: row.started_at as number,
@@ -418,7 +416,6 @@ export async function getRecentResolvedIncidentsWithUpdates(db: D1Database, days
 				title: row.title as string,
 				status: row.status as string,
 				severity: row.severity as string,
-				triage_report: row.triage_report as string | null,
 				github_repo: row.github_repo as string | null,
 				github_issue_number: row.github_issue_number as number | null,
 				started_at: row.started_at as number,

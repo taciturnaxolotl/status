@@ -165,7 +165,7 @@ export async function syncGitHubIncidents(
 				const kvKey = `gh_sync:${incident.id}:last`;
 				const lastSeen = await kv.get(kvKey);
 				const comments = await fetchComments(token, parsed.owner, parsed.repo, incident.github_issue_number, lastSeen ?? undefined);
-				const human = comments.filter((c) => c.user.type !== "Bot" && !c.body.startsWith("Automated incident detected") && !c.body.startsWith("## Triage Report") && !c.body.startsWith("Service recovered automatically"));
+				const human = comments.filter((c) => c.user.type !== "Bot" && !c.body.startsWith("Automated incident detected") && !c.body.startsWith("Service recovered automatically"));
 
 				// Use the last human comment as the resolve message, or fall back to generic
 				const resolveMsg = human.length > 0 ? human[human.length - 1].body : "Issue closed on GitHub";
@@ -192,7 +192,7 @@ export async function syncGitHubIncidents(
 			const comments = await fetchComments(token, parsed.owner, parsed.repo, incident.github_issue_number, lastSeen ?? undefined);
 
 			// Filter to human comments only (skip bots and our own posts)
-			const human = comments.filter((c) => c.user.type !== "Bot" && !c.body.startsWith("Automated incident detected") && !c.body.startsWith("## Triage Report") && !c.body.startsWith("Service recovered automatically"));
+			const human = comments.filter((c) => c.user.type !== "Bot" && !c.body.startsWith("Automated incident detected") && !c.body.startsWith("Service recovered automatically"));
 
 			for (const comment of human) {
 				await addIncidentUpdate(db, incident.id, incident.status, comment.body);

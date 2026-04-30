@@ -17,7 +17,6 @@ export interface Machine {
 	hostname: string;
 	tailscale_host: string;
 	type: "server" | "client";
-	triage_url: string | null;
 	services: Service[];
 }
 
@@ -38,7 +37,6 @@ export interface Incident {
 	title: string;
 	status: "investigating" | "identified" | "resolved";
 	severity: "critical" | "major" | "minor";
-	triage_report: string | null;
 	github_repo: string | null;
 	github_issue_number: number | null;
 	started_at: number;
@@ -63,7 +61,6 @@ export interface Env {
 	DB: D1Database;
 	KV: KVNamespace;
 	TAILSCALE_API_KEY?: string;
-	TRIAGE_AUTH_TOKEN?: string;
 	GITHUB_TOKEN?: string;
 	GITHUB_ASSIGN_TOKEN?: string;
 	GITHUB_ASSIGNEE?: string;

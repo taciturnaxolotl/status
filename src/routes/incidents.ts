@@ -9,12 +9,6 @@ import {
 } from "../db";
 import { commentOnIssue, parseRepo } from "../github";
 
-function authCheck(request: Request, env: Env): boolean {
-  const auth = request.headers.get("Authorization");
-  if (!auth || !env.TRIAGE_AUTH_TOKEN) return false;
-  return auth === `Bearer ${env.TRIAGE_AUTH_TOKEN}`;
-}
-
 export async function handleIncidentRoute(
   request: Request,
   env: Env,
@@ -30,9 +24,6 @@ export async function handleIncidentRoute(
 
   // POST /api/incidents
   if (path === "/api/incidents" && request.method === "POST") {
-    if (!authCheck(request, env)) {
-      return Response.json({ error: "unauthorized" }, { status: 401 });
-    }
     const body = await request.json<{ service_id: string; title: string; severity: "critical" | "major" | "minor" }>();
     if (!body.service_id || !body.title || !body.severity) {
       return Response.json({ error: "missing fields" }, { status: 400 });
@@ -51,29 +42,22 @@ export async function handleIncidentRoute(
 
   // PATCH /api/incidents/:id
   if (singleMatch && request.method === "PATCH") {
-    if (!authCheck(request, env)) {
-      return Response.json({ error: "unauthorized" }, { status: 401 });
-    }
     const id = parseInt(singleMatch[1]);
-    const body = await request.json<{ status?: string; triage_report?: string; summary?: string }>();
-    const updateData: { status?: string; triage_report?: string; resolved_at?: number } = {};
+    const body = await request.json<{ status?: string; summary?: string }>();
+    const updateData: { status?: string; resolved_at?: number } = {};
     if (body.status) updateData.status = body.status;
-    if (body.triage_report !== undefined) updateData.triage_report = body.triage_report;
     if (body.status === "resolved") updateData.resolved_at = Math.floor(Date.now() / 1000);
     await updateIncident(env.DB, id, updateData);
     if (body.status) {
-      const timelineMsg = body.summary ?? body.triage_report ?? `Status changed to ${body.status}`;
+      const timelineMsg = body.summary ?? `Status changed to ${body.status}`;
       await addIncidentUpdate(env.DB, id, body.status, timelineMsg);
     }
 
-    // Sync triage report to GitHub issue
     const incident = await getIncident(env.DB, id);
     if (env.GITHUB_TOKEN && incident?.github_repo && incident.github_issue_number) {
       const parsed = parseRepo(`https://github.com/${incident.github_repo}`);
       if (parsed) {
-        if (body.triage_report) {
-          commentOnIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, incident.github_issue_number, `## Triage Report\n\n${body.triage_report}`).catch(() => {});
-        } else if (body.status) {
+        if (body.status) {
           commentOnIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, incident.github_issue_number, `Status changed to **${body.status}**`).catch(() => {});
         }
       }
@@ -85,9 +69,6 @@ export async function handleIncidentRoute(
   // POST /api/incidents/:id/updates
   const updatesMatch = path.match(/^\/api\/incidents\/(\d+)\/updates$/);
   if (updatesMatch && request.method === "POST") {
-    if (!authCheck(request, env)) {
-      return Response.json({ error: "unauthorized" }, { status: 401 });
-    }
     const body = await request.json<{ status: string; message: string }>();
     if (!body.status || !body.message) {
       return Response.json({ error: "missing fields" }, { status: 400 });
