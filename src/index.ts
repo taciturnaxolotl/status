@@ -115,7 +115,7 @@ export default {
 								if (!recent) {
 									const id = await createIncident(env.DB, {
 										service_id: svc.name,
-										title: `${svc.name} is ${result.status}`,
+										title: `${svc.name} is ${result.status === "timeout" ? "timed out" : result.status}`,
 										severity: "major",
 									});
 
@@ -125,7 +125,7 @@ export default {
 										if (parsed) {
 											try {
 												const issueNumber = await createIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, {
-													title: `${svc.name} is ${result.status}`,
+													title: `${svc.name} is ${result.status === "timeout" ? "timed out" : result.status}`,
 													body: `Automated incident detected by [infra.dunkirk.sh](https://infra.dunkirk.sh)\n\n**Service:** ${svc.name}\n**Health URL:** ${svc.health_url}\n**Status:** ${result.status}${result.status_code ? ` (HTTP ${result.status_code})` : ""}${result.error ? ` — ${result.error}` : ""}\n**Latency:** ${result.latency_ms}ms\n**Detected at:** ${new Date().toISOString()}\n\n---\n*Comments on this issue will appear on the status page. Close the issue to resolve the incident.*`,
 													labels: ["incident"],
 												});

@@ -41,10 +41,10 @@ function groupIncidents(incidents: IncidentWithUpdates[]): IncidentGroup[] {
 			}
 		}
 
-		if (group.services.length > 1) {
-			const statusWord = group.title.includes("timeout") ? "timeout" : group.title.includes("down") ? "down" : "degraded";
-			group.title = `${group.services.length} services are ${statusWord}`;
-		}
+		const statusWord = group.title.includes("timeout") ? "timed out" : group.title.includes("down") ? "down" : "degraded";
+		group.title = group.services.length > 1
+			? `${group.services.length} services ${statusWord}`
+			: `${group.services[0]} is ${statusWord}`;
 
 		groups.push(group);
 	}
