@@ -1,9 +1,56 @@
-import type { Env } from "../types";
+import type { Env, IncidentWithUpdates } from "../types";
 import { getManifest } from "../manifest";
 import { getAllLatestPings, getAllUptime7d, getOverallUptimeDays, getOverallUptimePct, getLastCheckTime, getActiveIncidentsWithUpdates, getActiveIncidents, getRecentResolvedIncidentsWithUpdates } from "../db";
 import { getDeviceStatus } from "../tailscale";
 import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";
+
+interface IncidentGroup {
+	status: string;
+	title: string;
+	services: string[];
+	started_at: number;
+	resolved_at: number | null;
+	updated_at: number;
+	updates: { status: string; message: string; created_at: number }[];
+}
+
+function groupIncidents(incidents: IncidentWithUpdates[]): IncidentGroup[] {
+	const groups: IncidentGroup[] = [];
+	const assigned = new Set<number>();
+
+	for (let i = 0; i < incidents.length; i++) {
+		if (assigned.has(i)) continue;
+		const a = incidents[i];
+		const group: IncidentGroup = {
+			status: a.status,
+			title: a.title,
+			services: [a.service_id],
+			started_at: a.started_at,
+			resolved_at: a.resolved_at,
+			updated_at: a.updated_at,
+			updates: a.updates.map((u) => ({ status: u.status, message: u.message, created_at: u.created_at })),
+		};
+
+		for (let j = i + 1; j < incidents.length; j++) {
+			if (assigned.has(j)) continue;
+			const b = incidents[j];
+			if (Math.abs(a.started_at - b.started_at) <= 60 && Math.abs((a.resolved_at ?? 0) - (b.resolved_at ?? 0)) <= 60 && a.status === b.status && a.updates.length === b.updates.length && a.updates.every((u, idx) => u.status === b.updates[idx].status && u.message === b.updates[idx].message)) {
+				group.services.push(b.service_id);
+				assigned.add(j);
+			}
+		}
+
+		if (group.services.length > 1) {
+			const statusWord = group.title.includes("timeout") ? "timeout" : group.title.includes("down") ? "down" : "degraded";
+			group.title = `${group.services.length} services are ${statusWord}`;
+		}
+
+		groups.push(group);
+	}
+
+	return groups;
+}
 
 export async function handleIndex(env: Env): Promise<Response> {
 	const manifest = await getManifest(env);
@@ -51,6 +98,16 @@ export async function handleIndex(env: Env): Promise<Response> {
 		manifest, latestPings, activeIncidents: activeIncidentsList, machineOnline,
 	});
 	const activeIncidents = activeIncidentsWithUpdates;
+
+	const serviceUrlMap = new Map<string, string>();
+	for (const machine of Object.values(manifest)) {
+		for (const svc of machine.services) {
+			serviceUrlMap.set(svc.name, `https://${svc.domain}`);
+		}
+	}
+
+	const groupedActive = groupIncidents(activeIncidents);
+	const groupedResolved = groupIncidents(resolvedIncidents);
 
 	const html = `<!DOCTYPE html>
 <html lang="en">
@@ -118,6 +175,8 @@ export async function handleIndex(env: Env): Promise<Response> {
   .incident-status.identified { color: #f39c12; }
   .incident-title { font-weight: 500; }
   .incident-time { color: #8b949e; }
+  .incident-services a { color: #484f58; text-decoration: none; }
+  .incident-services a:hover { text-decoration: underline; }
   .incident-timeline { margin-top: 0.25rem; padding-left: 0.75rem; }
   .timeline-entry { padding: 0.25rem 0 0.25rem 0.5rem; font-size: 0.7rem; position: relative; }
   .timeline-entry::before { content: ''; position: absolute; left: -0.75rem; top: 50%; width: 6px; height: 6px; border-radius: 50%; background: #30363d; transform: translate(-2px, -50%); z-index: 1; }
@@ -152,15 +211,15 @@ export async function handleIndex(env: Env): Promise<Response> {
 <div class="uptime-bar">${uptimeDays.map((d) => `<div class="day ${d.status}" title="${d.date}: ${d.status}"></div>`).join("")}</div>
 <h1>infra.dunkirk.sh</h1>
 <p class="overall"><span class="dot ${overallClass}" id="overall-dot" title="${overallClass}"></span><span id="overall-text">${overallText}</span><span class="uptime-pct" id="overall-uptime"> at ${uptime90d}%</span></p>
-${activeIncidents.length > 0 ? `<div class="incidents">
-${activeIncidents.map((i) => `<div class="incident-banner">
+${groupedActive.length > 0 ? `<div class="incidents">
+${groupedActive.map((g) => `<div class="incident-banner">
   <div class="incident-header">
-    <span class="incident-status ${i.status}">${i.status}</span>
-    <span class="incident-title">${esc(i.title)}</span>
-    <span class="incident-time">started <relative-time datetime="${new Date(i.started_at * 1000).toISOString()}">loading</relative-time></span>
+    <span class="incident-status ${g.status}">${g.status}</span>
+    <span class="incident-title">${esc(g.title)}</span>${g.services.length > 1 ? `<span class="incident-services">${g.services.map((s) => serviceUrlMap.has(s) ? `<a href="${esc(serviceUrlMap.get(s)!)}">${esc(s)}</a>` : esc(s)).join(", ")}</span>` : ""}
+    <span class="incident-time">started <relative-time datetime="${new Date(g.started_at * 1000).toISOString()}">loading</relative-time></span>
   </div>
-  ${i.updates.length > 0 ? `<div class="incident-timeline">
-${i.updates.map((u) => `<div class="timeline-entry ${u.status}">
+  ${g.updates.length > 0 ? `<div class="incident-timeline">
+${g.updates.map((u) => `<div class="timeline-entry ${u.status}">
   <span class="timeline-time">${new Date(u.created_at * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })}</span>
   <span class="timeline-status ${u.status}">${esc(u.status)}</span>
   <span class="timeline-msg">${esc(u.message)}</span>
@@ -194,12 +253,12 @@ ${clients.length > 0 ? `<div class="clients">
 ${clients.map((m) => `<span class="client"><span class="dot ${m.online ? "online" : "unknown"}" data-machine="${esc(m.name)}" title="${m.online ? "online" : "offline"}"></span>${esc(m.name)}</span>`).join("\n")}
 </div>
 </div>` : ""}
-${resolvedIncidents.length > 0 ? `<div class="resolved-incidents">
+${groupedResolved.length > 0 ? `<div class="resolved-incidents">
 <div class="resolved-header">recent incidents</div>
-${resolvedIncidents.map((i) => `<div class="resolved-item">
-  <div class="resolved-item-header">${esc(i.title)} — resolved <relative-time datetime="${new Date((i.resolved_at ?? i.updated_at) * 1000).toISOString()}">loading</relative-time></div>
-  ${i.updates.length > 0 ? `<div class="incident-timeline">
-${i.updates.map((u) => `<div class="timeline-entry ${u.status}">
+${groupedResolved.map((g) => `<div class="resolved-item">
+  <div class="resolved-item-header">${esc(g.title)} — resolved <relative-time datetime="${new Date((g.resolved_at ?? g.updated_at) * 1000).toISOString()}">loading</relative-time>${g.services.length > 1 ? `<div class="incident-services">${g.services.map((s) => serviceUrlMap.has(s) ? `<a href="${esc(serviceUrlMap.get(s)!)}">${esc(s)}</a>` : esc(s)).join(", ")}</div>` : ""}</div>
+  ${g.updates.length > 0 ? `<div class="incident-timeline">
+${g.updates.map((u) => `<div class="timeline-entry ${u.status}">
   <span class="timeline-time">${new Date(u.created_at * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })}</span>
   <span class="timeline-status ${u.status}">${esc(u.status)}</span>
   <span class="timeline-msg">${esc(u.message)}</span>
