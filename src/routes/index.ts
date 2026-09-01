@@ -1,6 +1,6 @@
 import type { Env, IncidentWithUpdates } from "../types";
 import { getManifest } from "../manifest";
-import { getActiveIncidentsWithUpdates, getActiveIncidents, getRecentResolvedIncidentsWithUpdates } from "../db";
+import { getActiveIncidentsWithUpdates, getActiveIncidents, getRecentResolvedIncidentsWithUpdates } from "../db/incidents";
 import { getSnapshot } from "../snapshot";
 import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";

@@ -1,7 +1,7 @@
 // GitHub Issues integration for incidents
 
 import type { Incident } from "./types";
-import { updateIncident, addIncidentUpdate } from "./db";
+import { updateIncident, addIncidentUpdate } from "./db/incidents";
 
 export function parseRepo(repoUrl: string): { owner: string; repo: string } | null {
 	const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);

@@ -1,7 +1,8 @@
 import type { Env } from "./types";
 import { getManifest } from "./manifest";
 import { checkHealth } from "./health";
-import { recordPing, getLatestPing, pruneOldPings, pruneOldHourly, createIncident, updateIncident, addIncidentUpdate, getActiveIncidentForService, getActiveIncidents, getRecentlyResolvedIncident, getRecentlyResolvedIncidents, setIncidentGitHub } from "./db";
+import { recordPing, getLatestPing, pruneOldPings, pruneOldHourly } from "./db/pings";
+import { createIncident, updateIncident, addIncidentUpdate, getActiveIncidentForService, getActiveIncidents, getRecentlyResolvedIncident, getRecentlyResolvedIncidents, setIncidentGitHub } from "./db/incidents";
 import { refreshDevices } from "./tailscale";
 import { handleStatusRoute } from "./routes/status";
 import { handleFavicon } from "./routes/favicon";

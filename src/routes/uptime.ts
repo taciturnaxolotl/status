@@ -1,5 +1,5 @@
 import type { Env, UptimeResponse } from "../types";
-import { getUptimeBuckets } from "../db";
+import { getUptimeBuckets } from "../db/pings";
 
 export async function handleUptime(
 	env: Env,

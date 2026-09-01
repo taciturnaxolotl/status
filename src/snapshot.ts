@@ -1,13 +1,13 @@
 import type { Env, ServicesManifest, Snapshot } from "./types";
 import { getManifest } from "./manifest";
 import {
-	getActiveIncidents,
 	getAllLatestPings,
 	getAllUptime7d,
 	getLastCheckTime,
 	getOverallUptimeDays,
 	getOverallUptimePct,
-} from "./db";
+} from "./db/pings";
+import { getActiveIncidents } from "./db/incidents";
 import { getDeviceStatuses } from "./tailscale";
 
 const KV_KEY = "read_snapshot";

@@ -6,7 +6,7 @@ import {
   createIncident,
   updateIncident,
   addIncidentUpdate,
-} from "../db";
+} from "../db/incidents";
 import { commentOnIssue, parseRepo } from "../github";
 
 export async function handleIncidentRoute(
