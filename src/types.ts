@@ -57,6 +57,17 @@ export interface IncidentWithUpdates extends Incident {
 	updates: IncidentUpdate[];
 }
 
+export interface Snapshot {
+	generated_at: number;
+	last_check: number | null;
+	latest: Record<string, { status: string; latency_ms: number | null }>;
+	uptime90: Record<string, number>;
+	overall_days: { date: string; status: "up" | "degraded" | "down" | "none" }[];
+	overall_pct: number;
+	machine_online: Record<string, boolean>;
+	active_incidents: Incident[];
+}
+
 export interface Env {
 	DB: D1Database;
 	KV: KVNamespace;

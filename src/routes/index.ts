@@ -1,7 +1,7 @@
 import type { Env, IncidentWithUpdates } from "../types";
 import { getManifest } from "../manifest";
-import { getAllLatestPings, getAllUptime7d, getOverallUptimeDays, getOverallUptimePct, getLastCheckTime, getActiveIncidentsWithUpdates, getActiveIncidents, getRecentResolvedIncidentsWithUpdates } from "../db";
-import { getDeviceStatus } from "../tailscale";
+import { getActiveIncidentsWithUpdates, getActiveIncidents, getRecentResolvedIncidentsWithUpdates } from "../db";
+import { getSnapshot } from "../snapshot";
 import { getOverallStatus } from "../overall";
 import { COMMIT_SHA } from "../version";
 
@@ -53,39 +53,34 @@ function groupIncidents(incidents: IncidentWithUpdates[]): IncidentGroup[] {
 }
 
 export async function handleIndex(env: Env): Promise<Response> {
-	const manifest = await getManifest(env);
-	const serverServiceIds = Object.values(manifest)
-		.filter((m) => m.type === "server" && m.services.some((s) => s.health_url))
-		.flatMap((m) => m.services.filter((s) => s.health_url).map((s) => s.name));
-
-	const [latestPings, uptimes, lastCheck, uptimeDays, uptime90d, activeIncidentsWithUpdates, activeIncidentsList, resolvedIncidents] = await Promise.all([
-		getAllLatestPings(env.DB),
-		getAllUptime7d(env.DB),
-		getLastCheckTime(env.DB),
-		getOverallUptimeDays(env.DB, 90, serverServiceIds),
-		getOverallUptimePct(env.DB, 90, serverServiceIds),
+	// The four aggregates this used to run (latest pings, per-service uptime, the
+	// 90-day bar, the overall percentage) now come from the snapshot the cron
+	// builds. Only the small incident tables are still queried live.
+	const [manifest, snapshot, activeIncidentsWithUpdates, activeIncidentsList, resolvedIncidents] = await Promise.all([
+		getManifest(env),
+		getSnapshot(env),
 		getActiveIncidentsWithUpdates(env.DB),
 		getActiveIncidents(env.DB),
 		getRecentResolvedIncidentsWithUpdates(env.DB, 7),
 	]);
 
-	const machineOnline = new Map<string, boolean>();
-	const machines = await Promise.all(
-		Object.entries(manifest).map(async ([name, machine]) => {
-			const online = await getDeviceStatus(env, machine.tailscale_host);
-			machineOnline.set(name, online);
-			const services = machine.services.map((svc) => ({
-				name: svc.name,
-				description: svc.description,
-				url: `https://${svc.domain}`,
-				status: latestPings.get(svc.name)?.status ?? "unknown",
-				latency_ms: latestPings.get(svc.name)?.latency_ms ?? null,
-				uptime_90d: uptimes.get(svc.name) ?? 100,
-				has_health: svc.health_url !== null,
-			}));
-			return { name, type: machine.type, online, services };
-		}),
-	);
+	const lastCheck = snapshot.last_check;
+	const uptimeDays = snapshot.overall_days;
+	const uptime90d = snapshot.overall_pct;
+
+	const machines = Object.entries(manifest).map(([name, machine]) => {
+		const online = snapshot.machine_online[name] ?? false;
+		const services = machine.services.map((svc) => ({
+			name: svc.name,
+			description: svc.description,
+			url: `https://${svc.domain}`,
+			status: snapshot.latest[svc.name]?.status ?? "unknown",
+			latency_ms: snapshot.latest[svc.name]?.latency_ms ?? null,
+			uptime_90d: snapshot.uptime90[svc.name] ?? 100,
+			has_health: svc.health_url !== null,
+		}));
+		return { name, type: machine.type, online, services };
+	});
 
 	const lastCheckISO = lastCheck
 		? new Date(lastCheck * 1000).toISOString()
@@ -94,9 +89,9 @@ export async function handleIndex(env: Env): Promise<Response> {
 	const servers = machines.filter((m) => m.type === "server");
 	const clients = machines.filter((m) => m.type === "client");
 
-	const { grade: overallClass, label: overallText } = await getOverallStatus(env, {
-		manifest, latestPings, activeIncidents: activeIncidentsList, machineOnline,
-	});
+	const { grade: overallClass, label: overallText } = getOverallStatus(
+		manifest, snapshot, activeIncidentsList,
+	);
 	const activeIncidents = activeIncidentsWithUpdates;
 
 	const serviceUrlMap = new Map<string, string>();
@@ -342,16 +337,31 @@ function applyUpdate(data) {
   }
 }
 
+let refreshTimer = null;
+
+function queueRefresh(delay) {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(scheduleRefresh, delay);
+}
+
 function scheduleRefresh() {
+  // A hidden tab does not need to poll at all; it refreshes on focus instead.
+  if (document.visibilityState === 'hidden') return;
+
   fetch('/api/status').then(r => r.json()).then(data => {
     applyUpdate(data);
-    if (!data.last_check) { setTimeout(scheduleRefresh, CHECK_INTERVAL); return; }
+    if (!data.last_check) { queueRefresh(CHECK_INTERVAL); return; }
     const lastCheck = data.last_check * 1000;
     const nextCheck = lastCheck + CHECK_INTERVAL + BUFFER;
-    const delay = Math.max(nextCheck - Date.now(), BUFFER);
-    setTimeout(scheduleRefresh, delay);
-  }).catch(() => { setTimeout(scheduleRefresh, CHECK_INTERVAL); });
+    queueRefresh(Math.max(nextCheck - Date.now(), BUFFER));
+  }).catch(() => { queueRefresh(CHECK_INTERVAL); });
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') scheduleRefresh();
+  else if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+});
+
 scheduleRefresh();
 </script>
 </body>

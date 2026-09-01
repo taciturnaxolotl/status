@@ -27,15 +27,11 @@ export async function refreshDevices(env: Env): Promise<void> {
 	await env.KV.put(KV_KEY, JSON.stringify(data.devices));
 }
 
-export async function getDeviceStatus(
-	env: Env,
-	hostname: string,
-): Promise<boolean> {
+/** hostname (lowercased) -> connected. One KV read for the whole tailnet. */
+export async function getDeviceStatuses(env: Env): Promise<Map<string, boolean>> {
 	const cached = await env.KV.get(KV_KEY, "json");
-	if (!cached) return false;
-	const devices = cached as TailscaleDevice[];
-	const device = devices.find(
-		(d) => d.hostname.toLowerCase() === hostname.toLowerCase(),
+	const devices = (cached as TailscaleDevice[] | null) ?? [];
+	return new Map(
+		devices.map((d) => [d.hostname.toLowerCase(), d.connectedToControl]),
 	);
-	return device?.connectedToControl ?? false;
 }

@@ -1,8 +1,11 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getLatestPing, getUptime7d, getAllLatestPings, getAllUptime7d, getLastCheckTime } from "../db";
-import { getDeviceStatus } from "../tailscale";
+import { getSnapshot } from "../snapshot";
 import { getOverallStatus } from "../overall";
+
+// Every route here serves from the KV snapshot, so a browser tab polling
+// /api/status every 5 minutes costs zero D1 rows.
+const CACHE_HEADERS = { "Cache-Control": "public, max-age=60" };
 
 function worstStatus(statuses: string[]): string {
 	if (statuses.length === 0) return "unknown";
@@ -16,20 +19,19 @@ function worstStatus(statuses: string[]): string {
 
 // GET /api/status/overall
 async function overallStatus(env: Env): Promise<Response> {
-	const [manifest, uptimes, latestPings] = await Promise.all([
+	const [manifest, snapshot] = await Promise.all([
 		getManifest(env),
-		getAllUptime7d(env.DB),
-		getAllLatestPings(env.DB),
+		getSnapshot(env),
 	]);
 	const allServices = Object.values(manifest).flatMap((m) => m.services);
 	const monitored = allServices.filter((s) => s.health_url !== null);
 
 	let totalUptime = 0;
 	for (const svc of monitored) {
-		totalUptime += uptimes.get(svc.name) ?? 100;
+		totalUptime += snapshot.uptime90[svc.name] ?? 100;
 	}
 
-	const { grade } = await getOverallStatus(env, { manifest, latestPings });
+	const { grade } = getOverallStatus(manifest, snapshot, snapshot.active_incidents);
 	const avgUptime =
 		monitored.length > 0
 			? Math.round((totalUptime / monitored.length) * 100) / 100
@@ -43,59 +45,59 @@ async function overallStatus(env: Env): Promise<Response> {
 			services_total: allServices.length,
 			services_monitored: monitored.length,
 			machines_total: Object.keys(manifest).length,
-		}	);
+		},
+		{ headers: CACHE_HEADERS },
+	);
 }
 
 // GET /api/status
 async function fullStatus(env: Env): Promise<Response> {
-	const [manifest, latestPings, uptimes, lastCheck] = await Promise.all([
+	const [manifest, snapshot] = await Promise.all([
 		getManifest(env),
-		getAllLatestPings(env.DB),
-		getAllUptime7d(env.DB),
-		getLastCheckTime(env.DB),
+		getSnapshot(env),
 	]);
-
-	const machines = await Promise.all(
-		Object.entries(manifest).map(async ([name, machine]) => {
-			const online = await getDeviceStatus(env, machine.tailscale_host);
-			const services = machine.services.map((svc) => {
-				const ping = latestPings.get(svc.name);
-				return {
-					id: svc.name,
-					status: (ping?.status ?? "unknown") as string,
-					latency_ms: ping?.latency_ms ?? null,
-					uptime_90d: uptimes.get(svc.name) ?? 100,
-				};
-			});
-			const svcStatuses = services.map((s) => s.status);
+	const machines = Object.entries(manifest).map(([name, machine]) => {
+		const online = snapshot.machine_online[name] ?? false;
+		const services = machine.services.map((svc) => {
+			const ping = snapshot.latest[svc.name];
 			return {
-				name,
-				hostname: machine.hostname,
-				type: machine.type,
-				online,
-				status: online
-				? svcStatuses.length > 0 ? worstStatus(svcStatuses) : "up"
-				: "down",
-				services,
+				id: svc.name,
+				status: (ping?.status ?? "unknown") as string,
+				latency_ms: ping?.latency_ms ?? null,
+				uptime_90d: snapshot.uptime90[svc.name] ?? 100,
 			};
-		}),
-	);
+		});
+		const svcStatuses = services.map((s) => s.status);
+		return {
+			name,
+			hostname: machine.hostname,
+			type: machine.type,
+			online,
+			status: online
+			? svcStatuses.length > 0 ? worstStatus(svcStatuses) : "up"
+			: "down",
+			services,
+		};
+	});
 
-	const { grade } = await getOverallStatus(env, { manifest, latestPings });
+	const { grade } = getOverallStatus(manifest, snapshot, snapshot.active_incidents);
 
 	return Response.json(
 		{
 			ok: grade === "up",
 			status: grade,
-			last_check: lastCheck,
+			last_check: snapshot.last_check,
 			machines,
-		}	);
+		},
+		{ headers: CACHE_HEADERS },
+	);
 }
 
 // GET /api/status/service/:id
 async function serviceStatus(env: Env, id: string): Promise<Response> {
-	const ping = await getLatestPing(env.DB, id);
-	const uptime = await getUptime7d(env.DB, id);
+	const snapshot = await getSnapshot(env);
+	const ping = snapshot.latest[id] ?? null;
+	const uptime = snapshot.uptime90[id] ?? 100;
 
 	if (!ping) {
 		return Response.json({ error: "service not found" }, { status: 404 });
@@ -107,31 +109,33 @@ async function serviceStatus(env: Env, id: string): Promise<Response> {
 			status: ping.status,
 			latency_ms: ping.latency_ms,
 			uptime_90d: uptime,
-		}	);
+		},
+		{ headers: CACHE_HEADERS },
+	);
 }
 
 // GET /api/status/machine/:name
 async function machineStatus(env: Env, name: string): Promise<Response> {
-	const manifest = await getManifest(env);
+	const [manifest, snapshot] = await Promise.all([
+		getManifest(env),
+		getSnapshot(env),
+	]);
 	const machine = manifest[name];
 
 	if (!machine) {
 		return Response.json({ error: "machine not found" }, { status: 404 });
 	}
 
-	const online = await getDeviceStatus(env, machine.tailscale_host);
-	const services = await Promise.all(
-		machine.services.map(async (svc) => {
-			const ping = await getLatestPing(env.DB, svc.name);
-			const uptime = await getUptime7d(env.DB, svc.name);
-			return {
-				id: svc.name,
-				status: (ping?.status ?? "unknown") as string,
-				latency_ms: ping?.latency_ms ?? null,
-				uptime_90d: uptime,
-			};
-		}),
-	);
+	const online = snapshot.machine_online[name] ?? false;
+	const services = machine.services.map((svc) => {
+		const ping = snapshot.latest[svc.name];
+		return {
+			id: svc.name,
+			status: (ping?.status ?? "unknown") as string,
+			latency_ms: ping?.latency_ms ?? null,
+			uptime_90d: snapshot.uptime90[svc.name] ?? 100,
+		};
+	});
 
 	const statuses = services.map((s) => s.status);
 	const status = online ? worstStatus(statuses) : "down";
@@ -144,7 +148,9 @@ async function machineStatus(env: Env, name: string): Promise<Response> {
 			online,
 			status,
 			services,
-		}	);
+		},
+		{ headers: CACHE_HEADERS },
+	);
 }
 
 export async function handleStatusRoute(

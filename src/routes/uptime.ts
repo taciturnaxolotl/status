@@ -13,5 +13,6 @@ export async function handleUptime(
 
 	return Response.json(
 		{ service_id: serviceId, window_hours, buckets } satisfies UptimeResponse,
+		{ headers: { "Cache-Control": "public, max-age=300" } },
 	);
 }

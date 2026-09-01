@@ -1,7 +1,6 @@
 import type { Env } from "../types";
 import { getManifest } from "../manifest";
-import { getLatestPing, getUptime7d } from "../db";
-import { getDeviceStatus } from "../tailscale";
+import { getSnapshot } from "../snapshot";
 
 const COLORS: Record<string, string> = {
 	up: "#3cc068",
@@ -166,7 +165,10 @@ function worstStatus(statuses: string[]): string {
 
 const BADGE_HEADERS = {
 	"Content-Type": "image/svg+xml",
-	"Cache-Control": "no-cache, no-store, must-revalidate",
+	// Was no-cache/no-store: every README badge impression on GitHub ran a live
+	// 90-day aggregate per service. Badges now come from the KV snapshot and sit
+	// in the edge cache for one cron interval.
+	"Cache-Control": "public, max-age=300",
 	"Access-Control-Allow-Origin": "*",
 };
 
@@ -177,8 +179,9 @@ function badgeResponse(data: BadgeData, url: URL): Response {
 
 // GET /badge/service/:id
 async function serviceBadge(env: Env, id: string, url: URL): Promise<Response> {
-	const ping = await getLatestPing(env.DB, id);
-	const uptime = await getUptime7d(env.DB, id);
+	const snapshot = await getSnapshot(env);
+	const ping = snapshot.latest[id];
+	const uptime = snapshot.uptime90[id] ?? 100;
 	const status = (ping?.status as string) ?? "unknown";
 	const statusLabel = STATUS_LABELS[status] ?? "unknown";
 	return badgeResponse(
@@ -193,13 +196,16 @@ async function machineBadge(
 	name: string,
 	url: URL,
 ): Promise<Response> {
-	const manifest = await getManifest(env);
+	const [manifest, snapshot] = await Promise.all([
+		getManifest(env),
+		getSnapshot(env),
+	]);
 	const machine = manifest[name];
 	if (!machine) {
 		return new Response("Machine not found", { status: 404 });
 	}
 
-	const online = await getDeviceStatus(env, machine.tailscale_host);
+	const online = snapshot.machine_online[name] ?? false;
 	if (!online) {
 		return badgeResponse({ label: name, status: "down", value: "offline" }, url);
 	}
@@ -215,10 +221,8 @@ async function machineBadge(
 	const statuses: string[] = [];
 	let totalUptime = 0;
 	for (const svc of monitored) {
-		const ping = await getLatestPing(env.DB, svc.name);
-		const uptime = await getUptime7d(env.DB, svc.name);
-		statuses.push((ping?.status as string) ?? "unknown");
-		totalUptime += uptime;
+		statuses.push((snapshot.latest[svc.name]?.status as string) ?? "unknown");
+		totalUptime += snapshot.uptime90[svc.name] ?? 100;
 	}
 
 	const status = worstStatus(statuses);
@@ -232,7 +236,10 @@ async function machineBadge(
 
 // GET /badge/overall
 async function overallBadge(env: Env, url: URL): Promise<Response> {
-	const manifest = await getManifest(env);
+	const [manifest, snapshot] = await Promise.all([
+		getManifest(env),
+		getSnapshot(env),
+	]);
 	const allServices = Object.values(manifest).flatMap((m) => m.services);
 	const monitored = allServices.filter((s) => s.health_url !== null);
 
@@ -240,10 +247,8 @@ async function overallBadge(env: Env, url: URL): Promise<Response> {
 	let totalUptime = 0;
 
 	for (const svc of monitored) {
-		const ping = await getLatestPing(env.DB, svc.name);
-		const uptime = await getUptime7d(env.DB, svc.name);
-		statuses.push((ping?.status as string) ?? "unknown");
-		totalUptime += uptime;
+		statuses.push((snapshot.latest[svc.name]?.status as string) ?? "unknown");
+		totalUptime += snapshot.uptime90[svc.name] ?? 100;
 	}
 
 	const status = worstStatus(statuses);

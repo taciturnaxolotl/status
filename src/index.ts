@@ -1,7 +1,7 @@
 import type { Env } from "./types";
 import { getManifest } from "./manifest";
 import { checkHealth } from "./health";
-import { insertPing, getLatestPing, pruneOldPings, createIncident, updateIncident, addIncidentUpdate, getActiveIncidentForService, getActiveIncidents, getRecentlyResolvedIncident, getRecentlyResolvedIncidents, setIncidentGitHub } from "./db";
+import { recordPing, getLatestPing, pruneOldPings, pruneOldHourly, createIncident, updateIncident, addIncidentUpdate, getActiveIncidentForService, getActiveIncidents, getRecentlyResolvedIncident, getRecentlyResolvedIncidents, setIncidentGitHub } from "./db";
 import { refreshDevices } from "./tailscale";
 import { handleStatusRoute } from "./routes/status";
 import { handleFavicon } from "./routes/favicon";
@@ -9,6 +9,7 @@ import { handleUptime } from "./routes/uptime";
 import { handleBadgeRoute } from "./routes/badge";
 import { handleIndex } from "./routes/index";
 import { handleIncidentRoute } from "./routes/incidents";
+import { buildSnapshot, writeSnapshot } from "./snapshot";
 import { createIssue, assignIssue, commentOnIssue, closeIssue, parseRepo, syncGitHubIncidents } from "./github";
 import { schemas } from "./schemas";
 
@@ -94,7 +95,7 @@ export default {
 				.map(async (svc) => {
 					const previous = await getLatestPing(env.DB, svc.name);
 					const result = await checkHealth(svc);
-					await insertPing(env.DB, svc.name, result.status, result.latency_ms);
+					await recordPing(env.DB, svc.name, result.status, result.latency_ms);
 
 					const isDown = result.status === "down" || result.status === "timeout";
 					const wasUp = !previous || previous.status === "up" || previous.status === "degraded";
@@ -169,7 +170,20 @@ export default {
 		});
 
 		await Promise.all(checks);
-		await pruneOldPings(env.DB, 365);
+		// Raw pings only back debugging now; the rollups back the UI.
+		await pruneOldPings(env.DB, 30);
+		await pruneOldHourly(env.DB, 90);
+
+		// Rebuild the read model every request path serves from. This is the only
+		// place the rollups get aggregated: ~1.5k rows once per tick, instead of
+		// millions of rows on every page view.
+		try {
+			await writeSnapshot(env, await buildSnapshot(env, manifest));
+		} catch (err) {
+			// A failed rebuild leaves the previous snapshot in place; getSnapshot()
+			// rebuilds inline once it goes stale.
+			console.error("snapshot rebuild failed", err);
+		}
 
 		// Sync GitHub issue comments/state back to incidents
 		if (env.GITHUB_TOKEN) {
