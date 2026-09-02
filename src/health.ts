@@ -24,6 +24,10 @@ export async function checkHealth(service: Service): Promise<HealthResult> {
 			redirect: "follow",
 		});
 		const latency_ms = Date.now() - start;
+		// Only the status code matters here. An unread body holds a slot in the
+		// runtime's concurrent-fetch pool, and with ~20 services in flight it
+		// cancels the oldest response to avoid deadlock, logging a warning each time.
+		res.body?.cancel().catch(() => {});
 
 		if (res.status >= 400 && res.status < 500) {
 			return { status: "misconfigured", latency_ms, status_code: res.status };
