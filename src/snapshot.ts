@@ -121,7 +121,18 @@ export async function getSnapshot(env: Env): Promise<Snapshot> {
 		return cached;
 	}
 
-	const snapshot = await buildSnapshot(env, undefined, cached);
-	await writeSnapshot(env, snapshot);
-	return snapshot;
+	try {
+		const snapshot = await buildSnapshot(env, undefined, cached);
+		await writeSnapshot(env, snapshot);
+		return snapshot;
+	} catch (err) {
+		// D1 is unavailable and the snapshot has aged out. Stale numbers beat a
+		// 500 on a status page, so keep serving the last good one; only a cold
+		// KV with no snapshot at all is a real failure.
+		if (cached) {
+			console.error("snapshot rebuild failed, serving stale", err);
+			return cached;
+		}
+		throw err;
+	}
 }

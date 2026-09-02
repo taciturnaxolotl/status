@@ -1,4 +1,4 @@
-import type { Env, IncidentWithUpdates } from "../types";
+import type { Env, Incident, IncidentWithUpdates, Snapshot } from "../types";
 import { getManifest } from "../manifest";
 import { getActiveIncidentsWithUpdates, getActiveIncidents, getRecentResolvedIncidentsWithUpdates } from "../db/incidents";
 import { getSnapshot } from "../snapshot";
@@ -52,17 +52,44 @@ function groupIncidents(incidents: IncidentWithUpdates[]): IncidentGroup[] {
 	return groups;
 }
 
+/**
+ * Incidents are the only thing this page still reads live from D1. The snapshot
+ * already carries the active ones, so when D1 is unavailable (an outage, or the
+ * daily row limit being spent) render from it and drop the update history rather
+ * than failing the whole page. Every other route already survives that.
+ */
+async function loadIncidents(env: Env, snapshot: Snapshot): Promise<{
+	active: IncidentWithUpdates[];
+	activeList: Incident[];
+	resolved: IncidentWithUpdates[];
+}> {
+	try {
+		const [active, activeList, resolved] = await Promise.all([
+			getActiveIncidentsWithUpdates(env.DB),
+			getActiveIncidents(env.DB),
+			getRecentResolvedIncidentsWithUpdates(env.DB, 7),
+		]);
+		return { active, activeList, resolved };
+	} catch (err) {
+		console.error("incident load failed, falling back to snapshot", err);
+		return {
+			active: snapshot.active_incidents.map((i) => ({ ...i, updates: [] })),
+			activeList: snapshot.active_incidents,
+			resolved: [],
+		};
+	}
+}
+
 export async function handleIndex(env: Env): Promise<Response> {
 	// The four aggregates this used to run (latest pings, per-service uptime, the
 	// 90-day bar, the overall percentage) now come from the snapshot the cron
 	// builds. Only the small incident tables are still queried live.
-	const [manifest, snapshot, activeIncidentsWithUpdates, activeIncidentsList, resolvedIncidents] = await Promise.all([
-		getManifest(env),
-		getSnapshot(env),
-		getActiveIncidentsWithUpdates(env.DB),
-		getActiveIncidents(env.DB),
-		getRecentResolvedIncidentsWithUpdates(env.DB, 7),
-	]);
+	const [manifest, snapshot] = await Promise.all([getManifest(env), getSnapshot(env)]);
+	const {
+		active: activeIncidentsWithUpdates,
+		activeList: activeIncidentsList,
+		resolved: resolvedIncidents,
+	} = await loadIncidents(env, snapshot);
 
 	const lastCheck = snapshot.last_check;
 	const uptimeDays = snapshot.overall_days;
