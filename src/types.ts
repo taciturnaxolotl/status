@@ -59,6 +59,8 @@ export interface IncidentWithUpdates extends Incident {
 
 export interface Snapshot {
 	generated_at: number;
+	/** When the 90-day aggregates below were last recomputed. */
+	history_generated_at: number;
 	last_check: number | null;
 	latest: Record<string, { status: string; latency_ms: number | null }>;
 	uptime90: Record<string, number>;

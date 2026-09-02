@@ -10,7 +10,7 @@ import { handleUptime } from "./routes/uptime";
 import { handleBadgeRoute } from "./routes/badge";
 import { handleIndex } from "./routes/index";
 import { handleIncidentRoute } from "./routes/incidents";
-import { buildSnapshot, writeSnapshot } from "./snapshot";
+import { refreshSnapshot } from "./snapshot";
 import { createIssue, assignIssue, commentOnIssue, closeIssue, parseRepo, syncGitHubIncidents } from "./github";
 import { schemas } from "./schemas";
 
@@ -179,7 +179,7 @@ export default {
 		// place the rollups get aggregated: ~1.5k rows once per tick, instead of
 		// millions of rows on every page view.
 		try {
-			await writeSnapshot(env, await buildSnapshot(env, manifest));
+			await refreshSnapshot(env, manifest);
 		} catch (err) {
 			// A failed rebuild leaves the previous snapshot in place; getSnapshot()
 			// rebuilds inline once it goes stale.
