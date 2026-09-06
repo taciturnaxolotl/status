@@ -1,8 +1,8 @@
-import type { Env } from "./types";
+import type { Env, Incident } from "./types";
 import { getManifest } from "./manifest";
 import { checkHealth } from "./health";
-import { recordPing, getLatestPing, pruneOldHourly } from "./db/pings";
-import { createIncident, updateIncident, addIncidentUpdate, getActiveIncidentForService, getActiveIncidents, getRecentlyResolvedIncident, getRecentlyResolvedIncidents, setIncidentGitHub } from "./db/incidents";
+import { recordPing, getAllLatestPings, pruneOldHourly } from "./db/pings";
+import { createIncident, updateIncident, addIncidentUpdate, getActiveIncidents, getRecentlyResolvedIncident, getRecentlyResolvedIncidents, setIncidentGitHub } from "./db/incidents";
 import { refreshDevices } from "./tailscale";
 import { handleStatusRoute } from "./routes/status";
 import { handleFavicon } from "./routes/favicon";
@@ -90,11 +90,26 @@ export default {
 			refreshDevices(env),
 		]);
 
+		// Two reads for the whole tick, where this used to be two per service:
+		// a service's incident state only changes in its own branch below, so a
+		// snapshot taken here is what a fresh read would have returned anyway.
+		const [previousPings, openIncidents] = await Promise.all([
+			getAllLatestPings(env.DB),
+			getActiveIncidents(env.DB),
+		]);
+		// Ordered created_at DESC, so the first one wins: the newest per service.
+		const activeByService = new Map<string, Incident>();
+		for (const incident of openIncidents) {
+			if (!activeByService.has(incident.service_id)) {
+				activeByService.set(incident.service_id, incident);
+			}
+		}
+
 		const checks = Object.values(manifest).flatMap((machine) => {
 			return machine.services
 				.filter((svc) => svc.health_url)
 				.map(async (svc) => {
-					const previous = await getLatestPing(env.DB, svc.name);
+					const previous = previousPings.get(svc.name) ?? null;
 					const result = await checkHealth(svc);
 					await recordPing(env.DB, svc.name, result.status, result.latency_ms);
 
@@ -110,7 +125,7 @@ export default {
 
 						// Only trigger after 2 consecutive failures (10 min of downtime)
 						if (failures >= 2) {
-							const existing = await getActiveIncidentForService(env.DB, svc.name);
+							const existing = activeByService.get(svc.name);
 							if (!existing) {
 								// Check cooldown: no incident resolved in last 15 min
 								const recent = await getRecentlyResolvedIncident(env.DB, svc.name, 900);
@@ -149,7 +164,7 @@ export default {
 						}
 
 						// Auto-resolve active incidents
-						const active = await getActiveIncidentForService(env.DB, svc.name);
+						const active = activeByService.get(svc.name);
 						if (active) {
 							await updateIncident(env.DB, active.id, {
 								status: "resolved",

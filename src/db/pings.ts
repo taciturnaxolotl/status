@@ -38,18 +38,6 @@ export async function recordPing(
 	]);
 }
 
-export async function getLatestPing(
-	db: D1Database,
-	service_id: string,
-): Promise<{ status: string; latency_ms: number | null } | null> {
-	const row = await db
-		.prepare("SELECT status, latency_ms FROM service_latest WHERE service_id = ?")
-		.bind(service_id)
-		.first();
-	if (!row) return null;
-	return { status: row.status as string, latency_ms: row.latency_ms as number | null };
-}
-
 // Reads one row per service instead of a GROUP BY over the whole table.
 export async function getAllLatestPings(
 	db: D1Database,

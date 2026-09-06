@@ -102,17 +102,6 @@ export async function getActiveIncidentsWithUpdates(db: D1Database): Promise<Inc
 	return Array.from(incidentMap.values());
 }
 
-export async function getActiveIncidentForService(
-	db: D1Database,
-	service_id: string,
-): Promise<Incident | null> {
-	const row = await db
-		.prepare("SELECT * FROM incidents WHERE service_id = ? AND status != 'resolved' ORDER BY created_at DESC LIMIT 1")
-		.bind(service_id)
-		.first();
-	return (row as unknown as Incident) ?? null;
-}
-
 export async function getRecentIncidents(db: D1Database, days: number): Promise<Incident[]> {
 	const since = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
 	const rows = await db
