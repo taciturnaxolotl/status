@@ -1,7 +1,7 @@
 import type { Env } from "./types";
 import { getManifest } from "./manifest";
 import { checkHealth } from "./health";
-import { recordPing, getLatestPing, pruneOldPings, pruneOldHourly } from "./db/pings";
+import { recordPing, getLatestPing, pruneOldHourly } from "./db/pings";
 import { createIncident, updateIncident, addIncidentUpdate, getActiveIncidentForService, getActiveIncidents, getRecentlyResolvedIncident, getRecentlyResolvedIncidents, setIncidentGitHub } from "./db/incidents";
 import { refreshDevices } from "./tailscale";
 import { handleStatusRoute } from "./routes/status";
@@ -171,8 +171,6 @@ export default {
 		});
 
 		await Promise.all(checks);
-		// Raw pings only back debugging now; the rollups back the UI.
-		await pruneOldPings(env.DB, 30);
 		await pruneOldHourly(env.DB, 90);
 
 		// Rebuild the read model every request path serves from. This is the only

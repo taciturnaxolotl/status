@@ -1,9 +1,8 @@
 /**
  * Record one health check.
  *
- * Writes the raw ping plus the three derived rows every read path uses, in a
- * single batch. 4 rows written per check instead of 1, which is what buys us
- * reads measured in hundreds instead of millions.
+ * Writes the three derived rows every read path uses, in a single batch. The
+ * rollups are the only record: nothing reads raw pings, so nothing writes them.
  */
 export async function recordPing(
 	db: D1Database,
@@ -14,11 +13,6 @@ export async function recordPing(
 	const now = Math.floor(Date.now() / 1000);
 
 	await db.batch([
-		db
-			.prepare(
-				"INSERT INTO pings (service_id, timestamp, status, latency_ms) VALUES (?, ?, ?, ?)",
-			)
-			.bind(service_id, now, status, latency_ms),
 		db
 			.prepare(
 				`INSERT INTO service_latest (service_id, status, latency_ms, timestamp)
@@ -44,7 +38,6 @@ export async function recordPing(
 	]);
 }
 
-// Reads 1 row instead of scanning the service's slice of `pings`.
 export async function getLatestPing(
 	db: D1Database,
 	service_id: string,
@@ -135,8 +128,7 @@ export async function getAllUptime7d(
 	return map;
 }
 
-// Reads pre-aggregated hourly buckets. Raw pings are pruned at 30 days, so this
-// is also the only thing that can still answer a 90-day window.
+// Reads pre-aggregated hourly buckets.
 export async function getUptimeBuckets(
 	db: D1Database,
 	service_id: string,
@@ -252,7 +244,6 @@ export async function getOverallUptimePct(
 	return Math.round(((row.up_count ?? 0) / row.total) * 10000) / 100;
 }
 
-// One row per service instead of MAX() over the whole pings table.
 export async function getLastCheckTime(
 	db: D1Database,
 ): Promise<number | null> {
@@ -260,22 +251,6 @@ export async function getLastCheckTime(
 		.prepare("SELECT MAX(timestamp) as ts FROM service_latest")
 		.first<{ ts: number | null }>();
 	return row?.ts ?? null;
-}
-
-/**
- * Raw pings only back debugging of recent history now that every UI path reads
- * the rollups, so retention drops from 365d to 30d. At ~4.7k pings/day that
- * caps the table at ~140k rows instead of ~1.7M.
- */
-export async function pruneOldPings(
-	db: D1Database,
-	days: number,
-): Promise<void> {
-	const cutoff = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
-	await db
-		.prepare("DELETE FROM pings WHERE timestamp < ?")
-		.bind(cutoff)
-		.run();
 }
 
 /** Hourly buckets only back the 90-day uptime view; daily rollups are kept forever. */
