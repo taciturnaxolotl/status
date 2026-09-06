@@ -100,20 +100,24 @@ export async function getUptime7d(
 	return Math.round(((row.up_count ?? 0) / row.total) * 10000) / 100;
 }
 
-// ~90 x services rows (~1.5k) instead of ~427k.
+// Pass the service list: `day_bucket` alone cannot seek, because ping_daily's
+// primary key leads with service_id, so an unfiltered window scans every row
+// ever recorded. With the IN list each service seeks straight to its window.
 export async function getAllUptime7d(
 	db: D1Database,
 	days = 90,
+	serviceIds?: string[],
 ): Promise<Map<string, number>> {
+	const filter = serviceFilter(serviceIds);
 	const rows = await db
 		.prepare(
 			`SELECT service_id,
 				SUM(count) AS total,
 				SUM(CASE WHEN status = 'up' THEN count ELSE 0 END) AS up_count
-			FROM ping_daily WHERE day_bucket >= ?
+			FROM ping_daily WHERE day_bucket >= ?${filter.clause}
 			GROUP BY service_id`,
 		)
-		.bind(dayBucketSince(days))
+		.bind(dayBucketSince(days), ...filter.params)
 		.all();
 
 	const map = new Map<string, number>();

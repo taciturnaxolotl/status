@@ -16,11 +16,13 @@ const KV_KEY = "read_snapshot";
 // would rather pay for a rebuild than serve it.
 const MAX_AGE_SECONDS = 15 * 60;
 
-// The 90-day aggregates are the expensive third of a rebuild (~13k rows vs ~50)
-// and they barely move: one check is 0.004% of a 90-day window. Recomputing them
-// every tick cost 3.8M rows/day against a 5M/day limit, so they refresh hourly
-// and every other field stays live on the 5-minute tick.
-const HISTORY_MAX_AGE_SECONDS = 60 * 60;
+// The 90-day aggregates are the expensive third of a rebuild (~10k rows vs ~50)
+// and they barely move: one check is 0.004% of a 90-day window. Nothing
+// serializes a rebuild either, so every request crossing the boundary
+// recomputes them. At an hour that was two thirds of all rows read; six hours
+// costs a day-boundary that lags at most a quarter day and every other field
+// stays live on the 5-minute tick.
+const HISTORY_MAX_AGE_SECONDS = 6 * 60 * 60;
 
 /** The slice of the snapshot that summarises 90 days of history. */
 type History = Pick<
@@ -33,8 +35,12 @@ async function buildHistory(env: Env, manifest: ServicesManifest): Promise<Histo
 		.filter((machine) => machine.type === "server" && machine.services.some((s) => s.health_url))
 		.flatMap((machine) => machine.services.filter((s) => s.health_url).map((s) => s.name));
 
+	// Per-service uptime covers clients too, so it gets the wider list.
+	const monitoredServiceIds = Object.values(manifest)
+		.flatMap((machine) => machine.services.filter((s) => s.health_url).map((s) => s.name));
+
 	const [uptime90, overallDays, overallPct] = await Promise.all([
-		getAllUptime7d(env.DB),
+		getAllUptime7d(env.DB, 90, monitoredServiceIds),
 		getOverallUptimeDays(env.DB, 90, serverServiceIds),
 		getOverallUptimePct(env.DB, 90, serverServiceIds),
 	]);
