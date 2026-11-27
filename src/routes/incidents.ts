@@ -7,7 +7,6 @@ import {
   updateIncident,
   addIncidentUpdate,
 } from "../db/incidents";
-import { commentOnIssue, parseRepo } from "../github";
 
 export async function handleIncidentRoute(
   request: Request,
@@ -51,16 +50,6 @@ export async function handleIncidentRoute(
     if (body.status) {
       const timelineMsg = body.summary ?? `Status changed to ${body.status}`;
       await addIncidentUpdate(env.DB, id, body.status, timelineMsg);
-    }
-
-    const incident = await getIncident(env.DB, id);
-    if (env.GITHUB_TOKEN && incident?.github_repo && incident.github_issue_number) {
-      const parsed = parseRepo(`https://github.com/${incident.github_repo}`);
-      if (parsed) {
-        if (body.status) {
-          commentOnIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, incident.github_issue_number, `Status changed to **${body.status}**`).catch(() => {});
-        }
-      }
     }
 
     return Response.json({ ok: true });

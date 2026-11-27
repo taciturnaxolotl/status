@@ -15,5 +15,3 @@ migrations_dir = "./migrations"
 binding = "KV"
 id = "c4daf2e998ea45e1aad9efb6636b66df"
 
-[vars]
-GITHUB_ASSIGNEE = "taciturnaxolotl"

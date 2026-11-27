@@ -2,14 +2,14 @@ import type { Incident, IncidentUpdate, IncidentWithUpdates } from "../types";
 
 export async function createIncident(
 	db: D1Database,
-	data: { service_id: string; title: string; severity: "critical" | "major" | "minor"; github_repo?: string; github_issue_number?: number },
+	data: { service_id: string; title: string; severity: "critical" | "major" | "minor" },
 ): Promise<number> {
 	const now = Math.floor(Date.now() / 1000);
 	const result = await db
 		.prepare(
-			"INSERT INTO incidents (service_id, title, status, severity, github_repo, github_issue_number, started_at, created_at, updated_at) VALUES (?, ?, 'investigating', ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO incidents (service_id, title, status, severity, started_at, created_at, updated_at) VALUES (?, ?, 'investigating', ?, ?, ?, ?)",
 		)
-		.bind(data.service_id, data.title, data.severity, data.github_repo ?? null, data.github_issue_number ?? null, now, now, now)
+		.bind(data.service_id, data.title, data.severity, now, now, now)
 		.run();
 	const id = result.meta.last_row_id;
 	await db
@@ -80,8 +80,6 @@ export async function getActiveIncidentsWithUpdates(db: D1Database): Promise<Inc
 				title: row.title as string,
 				status: row.status as string,
 				severity: row.severity as string,
-				github_repo: row.github_repo as string | null,
-				github_issue_number: row.github_issue_number as number | null,
 				started_at: row.started_at as number,
 				resolved_at: row.resolved_at as number | null,
 				created_at: row.created_at as number,
@@ -134,8 +132,6 @@ export async function getRecentResolvedIncidentsWithUpdates(db: D1Database, days
 				title: row.title as string,
 				status: row.status as string,
 				severity: row.severity as string,
-				github_repo: row.github_repo as string | null,
-				github_issue_number: row.github_issue_number as number | null,
 				started_at: row.started_at as number,
 				resolved_at: row.resolved_at as number | null,
 				created_at: row.created_at as number,
@@ -170,30 +166,6 @@ export async function getIncident(db: D1Database, id: number): Promise<IncidentW
 		...(incident as unknown as Incident),
 		updates: updates.results as unknown as IncidentUpdate[],
 	};
-}
-
-export async function getIncidentByGitHubIssue(
-	db: D1Database,
-	repo: string,
-	issueNumber: number,
-): Promise<Incident | null> {
-	const row = await db
-		.prepare("SELECT * FROM incidents WHERE github_repo = ? AND github_issue_number = ? LIMIT 1")
-		.bind(repo, issueNumber)
-		.first();
-	return (row as unknown as Incident) ?? null;
-}
-
-export async function setIncidentGitHub(
-	db: D1Database,
-	id: number,
-	repo: string,
-	issueNumber: number,
-): Promise<void> {
-	await db
-		.prepare("UPDATE incidents SET github_repo = ?, github_issue_number = ?, updated_at = ? WHERE id = ?")
-		.bind(repo, issueNumber, Math.floor(Date.now() / 1000), id)
-		.run();
 }
 
 export async function getRecentlyResolvedIncident(

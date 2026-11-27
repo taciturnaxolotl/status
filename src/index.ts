@@ -2,7 +2,7 @@ import type { Env, Incident } from "./types";
 import { getManifest } from "./manifest";
 import { checkHealth } from "./health";
 import { recordPing, getAllLatestPings, pruneOldHourly } from "./db/pings";
-import { createIncident, updateIncident, addIncidentUpdate, getActiveIncidents, getRecentlyResolvedIncident, getRecentlyResolvedIncidents, setIncidentGitHub } from "./db/incidents";
+import { createIncident, updateIncident, addIncidentUpdate, getActiveIncidents, getRecentlyResolvedIncident } from "./db/incidents";
 import { refreshDevices } from "./tailscale";
 import { handleStatusRoute } from "./routes/status";
 import { handleFavicon } from "./routes/favicon";
@@ -11,7 +11,6 @@ import { handleBadgeRoute } from "./routes/badge";
 import { handleIndex } from "./routes/index";
 import { handleIncidentRoute } from "./routes/incidents";
 import { refreshSnapshot } from "./snapshot";
-import { createIssue, assignIssue, commentOnIssue, closeIssue, parseRepo, syncGitHubIncidents } from "./github";
 import { schemas } from "./schemas";
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -130,29 +129,11 @@ export default {
 								// Check cooldown: no incident resolved in last 15 min
 								const recent = await getRecentlyResolvedIncident(env.DB, svc.name, 900);
 								if (!recent) {
-									const id = await createIncident(env.DB, {
+									await createIncident(env.DB, {
 										service_id: svc.name,
 										title: `${svc.name} is ${result.status === "timeout" ? "timed out" : result.status}`,
 										severity: "major",
 									});
-
-									// Create GitHub issue on the service's repo
-									if (env.GITHUB_TOKEN && svc.repository) {
-										const parsed = parseRepo(svc.repository);
-										if (parsed) {
-											try {
-												const issueNumber = await createIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, {
-													title: `${svc.name} is ${result.status === "timeout" ? "timed out" : result.status}`,
-													body: `Automated incident detected by [infra.dunkirk.sh](https://infra.dunkirk.sh)\n\n**Service:** ${svc.name}\n**Health URL:** ${svc.health_url}\n**Status:** ${result.status}${result.status_code ? ` (HTTP ${result.status_code})` : ""}${result.error ? ` — ${result.error}` : ""}\n**Latency:** ${result.latency_ms}ms\n**Detected at:** ${new Date().toISOString()}\n\n---\n*Comments on this issue will appear on the status page. Close the issue to resolve the incident.*`,
-													labels: ["incident"],
-												});
-												if (env.GITHUB_ASSIGN_TOKEN && env.GITHUB_ASSIGNEE) {
-													await assignIssue(env.GITHUB_ASSIGN_TOKEN, parsed.owner, parsed.repo, issueNumber, [env.GITHUB_ASSIGNEE]);
-												}
-												await setIncidentGitHub(env.DB, id, `${parsed.owner}/${parsed.repo}`, issueNumber);
-											} catch (_) {} // best effort
-										}
-									}
 								}
 							}
 						}
@@ -171,15 +152,6 @@ export default {
 								resolved_at: Math.floor(Date.now() / 1000),
 							});
 							await addIncidentUpdate(env.DB, active.id, "resolved", "Service recovered automatically");
-
-							// Close the GitHub issue
-							if (env.GITHUB_TOKEN && active.github_repo && active.github_issue_number) {
-								const parsed = parseRepo(`https://github.com/${active.github_repo}`);
-								if (parsed) {
-									commentOnIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, active.github_issue_number, "Service recovered automatically. Closing issue.").catch(() => {});
-									closeIssue(env.GITHUB_TOKEN, parsed.owner, parsed.repo, active.github_issue_number).catch(() => {});
-								}
-							}
 						}
 					}
 				});
@@ -199,12 +171,5 @@ export default {
 			console.error("snapshot rebuild failed", err);
 		}
 
-		// Sync GitHub issue comments/state back to incidents
-		if (env.GITHUB_TOKEN) {
-			const active = await getActiveIncidents(env.DB);
-			const recentlyResolved = await getRecentlyResolvedIncidents(env.DB, 86400 * 7);
-			const toSync = [...active, ...recentlyResolved];
-			await syncGitHubIncidents(env.DB, env.KV, env.GITHUB_TOKEN, toSync);
-		}
 	},
 } satisfies ExportedHandler<Env>;
