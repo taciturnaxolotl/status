@@ -2,6 +2,22 @@ import type { Service } from "./types";
 
 const SLOW_THRESHOLD_MS = 3000;
 
+// Workers allow 6 open connections per invocation and queue the rest, which would count queue time as latency.
+const MAX_IN_FLIGHT = 5;
+let inFlight = 0;
+const waiting: (() => void)[] = [];
+
+async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
+	if (inFlight >= MAX_IN_FLIGHT) await new Promise<void>((resolve) => waiting.push(resolve));
+	inFlight++;
+	try {
+		return await fn();
+	} finally {
+		inFlight--;
+		waiting.shift()?.();
+	}
+}
+
 export type Status = "up" | "degraded" | "misconfigured" | "timeout" | "down" | "unknown";
 
 export interface HealthResult {
@@ -12,13 +28,17 @@ export interface HealthResult {
 }
 
 export async function checkHealth(service: Service): Promise<HealthResult> {
-	if (!service.health_url) {
+	const url = service.health_url;
+	if (!url) {
 		return { status: "unknown", latency_ms: 0 };
 	}
+	return withSlot(() => probe(url));
+}
 
+async function probe(health_url: string): Promise<HealthResult> {
 	const start = Date.now();
 	try {
-		const res = await fetch(service.health_url, {
+		const res = await fetch(health_url, {
 			method: "GET",
 			signal: AbortSignal.timeout(10_000),
 			redirect: "follow",
